@@ -1,0 +1,67 @@
+@import "reactflow/dist/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 224 49% 7%;
+  --foreground: 210 40% 98%;
+  --card: 224 39% 10%;
+  --card-foreground: 210 40% 98%;
+  --primary: 266 91% 66%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 190 92% 48%;
+  --secondary-foreground: 222 47% 7%;
+  --muted: 223 28% 16%;
+  --muted-foreground: 215 18% 67%;
+  --accent: 174 72% 45%;
+  --accent-foreground: 222 47% 7%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 223 24% 21%;
+  --input: 223 24% 21%;
+  --ring: 266 91% 66%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  scroll-behavior: smooth;
+  background: #050713;
+}
+
+body {
+  min-height: 100vh;
+  color: hsl(var(--foreground));
+  background:
+    radial-gradient(circle at 18% 0%, rgba(124, 58, 237, 0.18), transparent 28rem),
+    radial-gradient(circle at 80% 12%, rgba(34, 211, 238, 0.12), transparent 26rem),
+    linear-gradient(135deg, #050713 0%, #07111f 48%, #05070f 100%);
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.45);
+}
+
+@layer utilities {
+  .surface-panel {
+    @apply border border-white/10 bg-white/[0.055] shadow-glow backdrop-blur-2xl;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 24px 80px rgba(0, 0, 0, 0.28);
+  }
+
+  .surface-subtle {
+    @apply border border-white/10 bg-white/[0.03];
+  }
+
+  .xentinel-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+}
