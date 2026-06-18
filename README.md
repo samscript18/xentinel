@@ -176,37 +176,19 @@ http://localhost:3000
 
 ## Environment Variables
 
-Required for the full local experience:
-
-```env
 MONGODB_URI=
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-
-XERBERUS_API_KEY=
-XERBERUS_BASE_URL=https://mcp.xerberus.io/enterprise/mcp
-XERBERUS_MCP_URL=https://mcp.xerberus.io/enterprise/mcp
-
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-GROQ_API_KEY=
-GROQ_MODEL=
-GEMINI_API_KEY=
-GEMINI_MODEL=
-AI_PROVIDER=
-
 SMART_WALLET_WATCHLIST=
-```
-
-Optional Xerberus split-key variables:
-
-```env
+AI_PROVIDER=
+OPENROUTER_API_KEY=
+GROQ_API_KEY=
+GEMINI_API_KEY=
+XERBERUS_API_KEY=
 XERBERUS_ENTERPRISE_API_KEY=
 XERBERUS_ENTERPRISE_MCP_URL=https://mcp.xerberus.io/enterprise/mcp
 XERBERUS_FRAMEWORK_API_KEY=
 XERBERUS_FRAMEWORK_MCP_URL=https://mcp.xerberus.io/framework/mcp
-```
 
 ## Demo Flow
 
