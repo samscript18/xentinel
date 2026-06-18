@@ -3,6 +3,7 @@ import type {
   BeautifulOutputsResult,
   ContagionMap,
   RiskMigrationEvent,
+  RiskRating,
   SmartWallet,
   StressTestingResult,
   WalletAnalysis
@@ -15,6 +16,7 @@ export interface ApiResponse<TData> {
   meta: {
     generatedAt: string;
     source: ApiSource;
+    status?: "live" | "loading" | "unavailable";
     warnings?: string[];
   };
 }
@@ -34,6 +36,14 @@ export type ContagionResponse = ApiResponse<ContagionMap>;
 
 export type SmartMoneyResponse = ApiResponse<{
   wallets: SmartWallet[];
+  comparison: {
+    userRiskScore?: number;
+    userRiskRating?: RiskRating;
+    smartMoneyAverageRiskScore: number;
+    smartMoneyAverageRating?: RiskRating;
+    status: "outperforming" | "lagging" | "in_line" | "unavailable";
+    summary: string;
+  };
 }>;
 
 export type StressTestingResponse = ApiResponse<StressTestingResult>;

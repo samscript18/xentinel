@@ -7,21 +7,35 @@ export type XerberusToolName =
   | "rate_market"
   | "rate_entity"
   | "screen"
+  | "get_portfolio_brief"
   | "get_failure_modes"
+  | "intrinsic_open_risks"
+  | "get_intrinsic_summary"
+  | "portfolio_intrinsic_posture"
+  | "common_cause"
   | "look_through"
+  | "risk_decomposition"
   | "infrastructure_risk"
   | "backing_composition"
   | "liquidity_exit_quote"
+  | "liquidity_exit"
+  | "portfolio_ladder"
   | "simulate_scenario"
   | "crowding_queue"
+  | "get_positions"
+  | "get_health"
+  | "rating_history"
+  | "rating_outlook"
   | "generate_report"
   | "watch_create"
   | `chart_${string}`;
 
 export type XerberusTransportMode = "api" | "mcp";
+export type XerberusMcpServer = "enterprise" | "framework";
 
 export interface XerberusConfig {
   isConfigured: boolean;
+  server: XerberusMcpServer;
   apiKey?: string;
   baseUrl?: string;
   mcpUrl?: string;
@@ -31,6 +45,8 @@ export interface XerberusConfig {
 export interface XerberusToolRequest<TInput extends Record<string, unknown> = Record<string, unknown>> {
   tool: XerberusToolName;
   input: TInput;
+  server?: XerberusMcpServer;
+  timeoutMs?: number;
 }
 
 export interface XerberusToolResponse<TData = unknown> {
@@ -43,11 +59,17 @@ export interface XerberusToolResponse<TData = unknown> {
 export interface XerberusJsonRpcRequest {
   jsonrpc: "2.0";
   id: number;
-  method: "tools/call";
-  params: {
+  method: "tools/call" | "tools/list";
+  params?: {
     name: XerberusToolName;
     arguments: Record<string, unknown>;
   };
+}
+
+export interface XerberusToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
 }
 
 export interface RatingRequestInput {
@@ -57,6 +79,10 @@ export interface RatingRequestInput {
   marketId?: string;
   entityId?: string;
   walletAddress?: string;
+  wallets?: string[];
+  entity?: string;
+  targets?: string[];
+  kind?: "token" | "market" | "entity";
   metadata?: Record<string, unknown>;
 }
 
@@ -102,6 +128,7 @@ export interface SystemicRiskResponse {
 
 export interface StressScenarioInput {
   walletAddress?: string;
+  wallets?: string[];
   scenario: "eth_drop_40" | "usdc_depeg" | "liquidity_crunch" | string;
   positions?: unknown[];
 }
@@ -147,5 +174,6 @@ export interface WatchResponse {
 export interface XerberusRouteResult<TData> {
   data: TData;
   source: "xerberus" | "mixed" | "unavailable";
+  status?: "live" | "loading" | "unavailable";
   warnings: string[];
 }

@@ -33,8 +33,8 @@ const problemCards = [
 const solutionPillars = [
 	{
 		title: "Portfolio Guardian",
-		description: "Wallet-level risk analysis with AAA-D ratings, intrinsic risk, systemic risk, and highest-risk position highlights.",
-		metric: "Live",
+		description: "Wallet or entity-level risk analysis with AAA-D ratings, intrinsic risk, systemic risk, and position context when available.",
+		metric: "Ready",
 		label: "Current risk",
 	},
 	{
@@ -45,8 +45,8 @@ const solutionPillars = [
 	},
 	{
 		title: "Panic / Outflow Detector",
-		description: "Detects unusual outflows, rating drift, sudden systemic risk spikes, and smart wallet exits.",
-		metric: "Live",
+		description: "Surfaces rating drift, systemic risk spikes, configured smart-wallet exits, and outflow signals when available.",
+		metric: "Tracked",
 		label: "Panic probability",
 	},
 	{
@@ -57,7 +57,7 @@ const solutionPillars = [
 	},
 ];
 
-const workflowSteps = ["Paste wallet", "Get risk ratings", "Stress test positions", "Compare smart money", "Detect panic and outflows", "Ask the AI Co-Pilot"];
+const workflowSteps = ["Paste wallet", "Get risk ratings", "Stress test wallet", "Compare smart money", "Review panic signals", "Ask the AI Co-Pilot"];
 
 const riskEngineItems = ["AAA-D ratings", "Intrinsic risk", "Systemic risk", "Protocol dependency analysis", "Vault and position stress awareness", "Contagion intelligence"];
 
@@ -71,7 +71,7 @@ const featureCards = [
 	["Intrinsic vs systemic risk", ShieldCheck],
 	["Dependency mapping", GitBranch],
 	["Contagion scenarios", Network],
-	["Live risk engine", Sparkles],
+	["Risk engine", Sparkles],
 ] as const;
 
 const fadeUp: Variants = {
@@ -222,9 +222,9 @@ function HeroPreview() {
 
 					<div className="mt-5 grid gap-3 md:grid-cols-3">
 						{[
-							["Overall risk", "Live", "text-violet-100"],
-							["Systemic", "Live", "text-amber-100"],
-							["Contagion", "Live", "text-red-100"],
+							["Overall risk", "Ready", "text-violet-100"],
+							["Systemic", "On demand", "text-amber-100"],
+							["Contagion", "Mapped", "text-red-100"],
 						].map(([label, value, color]) => (
 							<div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
 								<p className="text-xs text-muted-foreground">{label}</p>
@@ -238,7 +238,7 @@ function HeroPreview() {
 							<CircleAlert className="mt-1 h-4 w-4 shrink-0 text-amber-100" aria-hidden />
 							<div>
 								<p className="text-sm font-semibold text-white">Panic / outflow alert</p>
-								<p className="mt-1 text-sm leading-6 text-amber-50/75">Wallet risk signals update from live holdings, ratings, and smart-wallet snapshots.</p>
+								<p className="mt-1 text-sm leading-6 text-amber-50/75">Wallet risk signals update from available ratings, stress outputs, and configured smart-wallet snapshots.</p>
 							</div>
 						</div>
 					</div>
@@ -359,7 +359,7 @@ function HowItWorksSection() {
 		<LandingSection
 			eyebrow="How it works"
 			title="From wallet input to actionable risk insight."
-			description="Paste wallet, get risk ratings, stress test positions, compare smart money, detect panic and outflows, then ask the AI Co-Pilot what to do next."
+			description="Paste wallet, get risk ratings, stress test the wallet, compare configured smart-money snapshots, review panic signals, then ask the AI Co-Pilot what to do next."
 			id="how-it-works"
 		>
 			<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -416,9 +416,9 @@ function StressTestingSection() {
 					<h3 className="text-xl font-semibold text-white">Stress scenarios</h3>
 					<div className="mt-6 grid gap-4">
 						{[
-							["What if ETH drops 40%?", "Live scenario", "Drawdown and systemic pressure come from the stress engine."],
-							["What if USDC depegs?", "Live scenario", "Stablecoin pressure is evaluated against the current wallet."],
-							["What if exits crowd?", "Live queue", "Exit timing and crowding come from live ladder analysis."],
+							["What if ETH drops 40%?", "Scenario", "Drawdown and systemic pressure come from the stress engine when available."],
+							["What if USDC depegs?", "Scenario", "Stablecoin pressure is evaluated against the current wallet when supported."],
+							["What if exits crowd?", "Exit ladder", "Exit timing and crowding come from available ladder analysis."],
 						].map(([title, metric, detail]) => (
 							<MotionCard key={title} className="rounded-2xl border border-white/10 bg-black/20 p-4">
 								<p className="font-semibold text-white">{title}</p>
@@ -484,7 +484,7 @@ function PanicOutflowSection() {
 					<div className="mt-6 h-3 overflow-hidden rounded-full bg-white/10">
 						<motion.div initial={{ width: 0 }} whileInView={{ width: "62%" }} viewport={{ once: true }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }} className="h-full rounded-full bg-gradient-to-r from-amber-300 to-red-400" />
 					</div>
-					<p className="mt-2 text-sm text-red-50/75">Live panic score after analysis</p>
+					<p className="mt-2 text-sm text-red-50/75">Panic score after available signals are analyzed</p>
 				</motion.div>
 			</div>
 		</LandingSection>
@@ -526,8 +526,8 @@ function SmartMoneySection() {
 			<div className="grid gap-5 lg:grid-cols-3">
 				{[
 					["Smart wallets reducing exposure", "Tracked from snapshots", "text-red-100"],
-					["Risk-off rotations", "Measured from holdings", "text-amber-100"],
-					["Safer vault rotation", "Compared live", "text-emerald-100"],
+					["Risk-off rotations", "Measured from snapshots", "text-amber-100"],
+					["Safer vault rotation", "Compared when available", "text-emerald-100"],
 				].map(([title, value, color]) => (
 					<MotionCard key={title} className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
 						<p className="text-sm text-muted-foreground">{title}</p>
@@ -558,7 +558,7 @@ function CopilotSection() {
 					<div className="rounded-2xl border border-violet-300/20 bg-violet-300/10 p-4">
 						<p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-100">Xentinel AI Co-Pilot</p>
 						<p className="mt-3 text-sm leading-7 text-violet-50/80">
-							Xentinel answers with the current wallet context: live holdings, ratings, stress scenarios, panic signals, smart-wallet movement, and dependency paths.
+							Xentinel answers with available wallet context: ratings, stress scenarios, panic signals, smart-wallet movement, and dependency paths.
 						</p>
 					</div>
 				</motion.div>
@@ -572,9 +572,9 @@ function BeautifulOutputsSection() {
 		<LandingSection eyebrow="Beautiful Outputs" title="Risk intelligence should be easy to share." description="Polished output surfaces turn risk state, stress results, and alerts into shareable briefs.">
 			<div className="grid gap-5 md:grid-cols-3">
 				{[
-					["PDF risk report", "A clean export for wallet risk state, stress results, and top attention items."],
-					["Risk chart visuals", "Premium rating, systemic risk, and stress visuals built around portfolio risk signals."],
-					["Rating-drift alerts", "Beautiful alert cards for AAA-D movement, outflow pressure, and panic changes."],
+					["Risk report", "A clean export surface for wallet risk state, stress results, and top attention items when report generation is available."],
+					["Risk chart visuals", "Premium rating, systemic risk, and stress visuals built around available portfolio risk signals."],
+					["Rating-drift alerts", "Beautiful alert cards for AAA-D movement, outflow pressure, and panic changes when watch data exists."],
 				].map(([title, description]) => (
 					<MotionCard key={title} className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
 						<FileText className="h-5 w-5 text-cyan-100" aria-hidden />

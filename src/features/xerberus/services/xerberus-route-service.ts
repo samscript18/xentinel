@@ -1,10 +1,30 @@
 import "server-only";
-import { getWalletPortfolio } from "@/features/moralis/moralis-client";
-import type { MoralisDefiPosition, MoralisPortfolio, MoralisTokenHolding } from "@/features/moralis/types";
-import { getSmartMoneyLive } from "@/features/smart-money/services/smart-money-service";
 import { getXerberusConfig } from "@/features/xerberus/config";
+import { XerberusClientError } from "@/features/xerberus/services/xerberus-client";
 import { xerberusService } from "@/features/xerberus/services/xerberus-service";
 import { logXerberusWarning } from "@/features/xerberus/utils/xerberus-logger";
+import {
+  clamp,
+  emptyBeautifulOutputsResult,
+  emptyContagionMap,
+  emptyPanicOutflowResult,
+  emptyStressTestingResult,
+  emptyWalletAnalysis,
+  intrinsicRiskReasons,
+  isRecord,
+  liquidityLadderFrom,
+  liveResult,
+  normalizeRatingResponse,
+  numberFrom,
+  positionTargetsFromXerberus,
+  portfolioPositionsFromXerberus,
+  scenarioFrom,
+  sourceFor,
+  stringFrom,
+  trendFrom,
+  uniqueStrings,
+  unavailableResult
+} from "@/features/xerberus/utils/xerberus-route-utils";
 import type {
   CrowdingQueueResponse,
   IntrinsicRiskResponse,
@@ -12,14 +32,11 @@ import type {
   RatingResponse,
   ReportResponse,
   StressScenarioResponse,
-  SystemicRiskResponse,
-  XerberusRouteResult
 } from "@/features/xerberus/types";
 import type {
   BeautifulOutputsResult,
   ContagionMap,
   ContagionNode,
-  LiquidityLadderStep,
   RiskMigrationEvent,
   RiskRating,
   StressScenario,
@@ -27,75 +44,447 @@ import type {
   WalletAnalysis
 } from "@/types/risk";
 
-const validRatings: RiskRating[] = ["AAA", "AA", "A", "BBB", "BB", "B", "C", "D"];
-
 interface ToolAttempt<TData> {
   data?: TData;
   warning?: string;
 }
 
-const unavailableWarning = "Live risk intelligence is not available yet.";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+export interface PortfolioIntrinsicSection {
+  score: number;
+  risks: string[];
 }
 
-function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)));
+export interface PortfolioSystemicSection {
+  score: number;
+  summary?: string;
+  dependencies: Array<{
+    name: string;
+    category?: string;
+    exposure?: number;
+  }>;
 }
 
-function numberFrom(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+export interface PortfolioScreenSection {
+  positions: WalletAnalysis["positions"];
 }
 
-function stringFrom(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+function warningForTool(label: string, error: unknown) {
+  if (error instanceof XerberusClientError && error.code === "timeout") {
+    if (label === "rate_entity" || label === "rate_token" || label === "rate_market") {
+      return "Xerberus rating request timed out. Try again or analyze a token/protocol input.";
+    }
+
+    if (label === "get_failure_modes" || label === "intrinsic_open_risks" || label === "portfolio_intrinsic_posture") {
+      return "Intrinsic risk details are temporarily unavailable.";
+    }
+
+    if (label === "look_through" || label === "risk_decomposition" || label === "rating_outlook") {
+      return "Systemic risk details are temporarily unavailable.";
+    }
+
+    if (label === "screen") {
+      return "Position screening is temporarily unavailable.";
+    }
+  }
+
+  if (label === "get_failure_modes" || label === "intrinsic_open_risks" || label === "portfolio_intrinsic_posture") {
+    return "Intrinsic risk details are temporarily unavailable.";
+  }
+
+  if (label === "look_through" || label === "risk_decomposition" || label === "rating_outlook") {
+    return "Systemic risk details are temporarily unavailable.";
+  }
+
+  if (label === "screen") {
+    return "Position screening is temporarily unavailable.";
+  }
+
+  return `${label} is temporarily unavailable.`;
 }
 
-function clamp(value: number, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, Math.round(value)));
+function ratingHasUsableRiskData(rating: ReturnType<typeof normalizeRatingResponse>) {
+  return Boolean(rating.rating || rating.score !== undefined || rating.intrinsicRisk !== undefined || rating.systemicRisk !== undefined);
 }
 
-function ratingFrom(value: unknown): RiskRating | undefined {
-  return typeof value === "string" && validRatings.includes(value as RiskRating)
-    ? value as RiskRating
-    : undefined;
+function textIndicatesUnavailable(value: string | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.toLowerCase();
+  return normalized.includes("unknown tool") || normalized.includes("not available") || normalized.includes("no risk scores");
 }
 
-function trendFrom(score: number | undefined) {
-  if (score === undefined) {
-    return "stable";
+function payloadHasError(value: unknown) {
+  if (typeof value === "string") {
+    return /^(Unknown tool|Error executing tool)/i.test(value.trim());
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return typeof value.error === "string" && value.error.trim().length > 0;
+}
+
+function scoreFromOpenRiskCount(value: unknown) {
+  if (!isRecord(value)) {
+    return 0;
+  }
+
+  const openCount = numberFrom(value.open_count);
+  const unknownExposure = numberFrom(value.unknown_rate_exposure_weighted);
+
+  if (unknownExposure !== undefined) {
+    return clamp(unknownExposure * 100);
+  }
+
+  if (openCount !== undefined) {
+    return clamp(openCount * 8);
+  }
+
+  return 0;
+}
+
+function weightedAverageRisk(
+  positions: WalletAnalysis["positions"],
+  selector: (position: WalletAnalysis["positions"][number]) => number
+) {
+  const totalValue = positions.reduce((sum, position) => sum + Math.max(0, position.valueUsd), 0);
+
+  if (totalValue <= 0) {
+    const values = positions.map(selector).filter((value) => value > 0);
+    return values.length > 0 ? clamp(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+  }
+
+  return clamp(positions.reduce((sum, position) => sum + selector(position) * (Math.max(0, position.valueUsd) / totalValue), 0));
+}
+
+function nestedNumber(record: Record<string, unknown>, path: string[]) {
+  let current: unknown = record;
+
+  for (const key of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+
+    current = current[key];
+  }
+
+  return numberFrom(current);
+}
+
+function hasDebtPosition(value: unknown, depth = 0): boolean {
+  if (depth > 5) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasDebtPosition(item, depth + 1));
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const side = stringFrom(value.side)?.toLowerCase();
+  if (side && ["debt", "borrow", "borrowed"].some((hint) => side.includes(hint))) {
+    return true;
+  }
+
+  const debtUsd = numberFrom(value.debt_usd) ?? numberFrom(value.debtUsd) ?? numberFrom(value.borrow_usd) ?? numberFrom(value.borrowUsd);
+  if (debtUsd !== undefined && debtUsd > 0) {
+    return true;
+  }
+
+  return Object.values(value).some((nested) => hasDebtPosition(nested, depth + 1));
+}
+
+function stressMetricsFromLadder(ladderData: unknown, ladderSteps: StressTestingResult["exitLiquidityLadder"]) {
+  const record = isRecord(ladderData) ? ladderData : {};
+  const bookUsd = numberFrom(record.book_usd) ?? numberFrom(record.bookUsd) ?? 0;
+  const oneDayStep = ladderSteps.find((step) => step.window.toLowerCase() === "1d") ?? ladderSteps[0];
+  const sevenDayStep = ladderSteps.find((step) => step.window.toLowerCase() === "7d");
+  const oneDayExitablePercent = oneDayStep?.exitablePercent ?? 0;
+  const sevenDayExitablePercent = sevenDayStep?.exitablePercent;
+  const oneDayExitableUsd = nestedNumber(record, ["ladder", "1d", "exitable_usd"]) ?? 0;
+  const slowestTokenDays = numberFrom(record.slowest_token_days);
+  const notImmediatelyExitableUsd = bookUsd > 0 ? Math.max(0, bookUsd - oneDayExitableUsd) : 0;
+
+  return {
+    panicMeter: clamp(100 - oneDayExitablePercent),
+    downsideExposureUsd: Math.round(notImmediatelyExitableUsd),
+    headline: sevenDayExitablePercent !== undefined
+      ? `${oneDayExitablePercent}% of this wallet can exit within 1 day at the selected impact band; ${sevenDayExitablePercent}% can exit within 7 days.`
+      : `${oneDayExitablePercent}% of this wallet can exit within 1 day at the selected impact band.`,
+    downsideTiming: slowestTokenDays !== undefined
+      ? `The slowest position is estimated to need about ${slowestTokenDays.toFixed(1)} days to exit.`
+      : "Review the exit liquidity ladder for downside timing."
+  };
+}
+
+function slugifyNodeId(value: string, fallback: string) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return normalized || fallback;
+}
+
+function severityFromScore(score: number): RiskMigrationEvent["severity"] {
+  if (score >= 80) {
+    return "high";
+  }
+
+  if (score >= 55) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function scoreLabel(score: number) {
+  if (score >= 80) {
+    return "critical";
+  }
+
+  if (score >= 65) {
+    return "elevated";
+  }
+
+  if (score >= 40) {
+    return "moderate";
+  }
+
+  return "low";
+}
+
+function outputSeverityFromScore(score: number): BeautifulOutputsResult["ratingDriftAlerts"][number]["severity"] {
+  if (score >= 90) {
+    return "critical";
   }
 
   if (score >= 70) {
-    return "deteriorating";
+    return "high";
   }
 
-  if (score <= 35) {
-    return "improving";
+  return "medium";
+}
+
+function ratingFromScore(score: number): RiskRating {
+  if (score >= 98) {
+    return "C";
   }
 
-  return "stable";
+  if (score >= 90) {
+    return "B";
+  }
+
+  if (score >= 75) {
+    return "BB";
+  }
+
+  if (score >= 55) {
+    return "BBB";
+  }
+
+  if (score >= 35) {
+    return "A";
+  }
+
+  if (score >= 20) {
+    return "AA";
+  }
+
+  return "AAA";
 }
 
-function sourceFor(successes: number): XerberusRouteResult<unknown>["source"] {
-  return successes > 0 ? "xerberus" : "unavailable";
+function worstPositionRating(positions: WalletAnalysis["positions"]) {
+  const ratingRisk: Record<Exclude<RiskRating, "NR">, number> = {
+    AAA: 1,
+    AA: 2,
+    A: 3,
+    BBB: 4,
+    BB: 5,
+    B: 6,
+    C: 7,
+    D: 8
+  };
+
+  return positions
+    .map((position) => position.rating)
+    .filter((rating): rating is Exclude<RiskRating, "NR"> => rating !== "NR")
+    .sort((left, right) => ratingRisk[right] - ratingRisk[left])[0];
 }
 
-function unavailableResult<TData>(data: TData, warnings: string[] = []): XerberusRouteResult<TData> {
+function contagionMapFromPositions(wallet: WalletAnalysis): ContagionMap {
+  const nodesById = new Map<string, ContagionNode>();
+  const edgesById = new Map<string, ContagionMap["edges"][number]>();
+
+  nodesById.set("wallet", {
+    id: "wallet",
+    label: "Your Position",
+    rating: wallet.rating,
+    exposureUsd: wallet.positions.reduce((sum, position) => sum + position.valueUsd, 0),
+    category: "User"
+  });
+
+  wallet.positions.slice(0, 8).forEach((position, index) => {
+    const assetId = `asset-${slugifyNodeId(position.asset, `asset-${index}`)}`;
+    const protocolId = `protocol-${slugifyNodeId(position.protocol, `protocol-${index}`)}`;
+    const riskWeight = clamp(position.systemicRisk || wallet.systemicRisk) / 100;
+    const allocationWeight = Math.max(0.1, Math.min(1, position.allocationPercent / 100));
+    const exposureWeight = riskWeight > 0 ? riskWeight : allocationWeight;
+
+    if (!nodesById.has(assetId)) {
+      nodesById.set(assetId, {
+        id: assetId,
+        label: position.asset,
+        rating: position.rating,
+        exposureUsd: position.valueUsd,
+        category: "Asset"
+      });
+    }
+
+    if (!nodesById.has(protocolId)) {
+      nodesById.set(protocolId, {
+        id: protocolId,
+        label: position.protocol,
+        rating: position.rating,
+        exposureUsd: position.valueUsd,
+        category: "Protocol"
+      });
+    }
+
+    edgesById.set(`${assetId}->${protocolId}`, {
+      id: `asset_protocol_edge_${index}`,
+      source: assetId,
+      target: protocolId,
+      dependency: "Position exposure",
+      weight: exposureWeight
+    });
+
+    edgesById.set(`${protocolId}->wallet`, {
+      id: `protocol_wallet_edge_${index}`,
+      source: protocolId,
+      target: "wallet",
+      dependency: "Portfolio exposure",
+      weight: exposureWeight
+    });
+  });
+
+  const highestRiskPosition = [...wallet.positions].sort((left, right) => {
+    const leftRisk = Math.max(left.systemicRisk, left.intrinsicRisk);
+    const rightRisk = Math.max(right.systemicRisk, right.intrinsicRisk);
+    return rightRisk - leftRisk;
+  })[0];
+
   return {
-    data,
-    source: "unavailable",
-    warnings: uniqueStrings([unavailableWarning, ...warnings])
+    nodes: Array.from(nodesById.values()),
+    edges: Array.from(edgesById.values()),
+    highestRiskPath: highestRiskPosition
+      ? [highestRiskPosition.asset, highestRiskPosition.protocol, "Your Position"]
+      : []
   };
 }
 
-function liveResult<TData>(data: TData, warnings: string[] = []): XerberusRouteResult<TData> {
+function panicEventsFromPortfolioAndStress(
+  portfolio: WalletAnalysis,
+  stress: StressTestingResult,
+  warnings: string[] = []
+) {
+  const timestamp = new Date().toISOString();
+  const events: RiskMigrationEvent[] = [];
+  const riskScore = clamp(Math.max(portfolio.overallRiskScore, portfolio.systemicRisk));
+  const highestRiskPosition = [...portfolio.positions].sort((left, right) => {
+    const leftRisk = Math.max(left.systemicRisk, left.intrinsicRisk);
+    const rightRisk = Math.max(right.systemicRisk, right.intrinsicRisk);
+    return rightRisk - leftRisk;
+  })[0];
+
+  if (portfolio.rating !== "NR" || riskScore > 0) {
+    events.push({
+      id: "wallet-risk-posture",
+      protocol: "Wallet risk posture",
+      oldRating: "NR",
+      newRating: portfolio.rating,
+      confidence: 0.82,
+      timestamp,
+      signal: `Wallet is rated ${portfolio.rating} with ${riskScore}/100 relative risk.`,
+      severity: severityFromScore(riskScore),
+      timeframe: "Current Xerberus window",
+      reason: `Systemic risk is ${portfolio.systemicRisk}/100 and intrinsic risk is ${portfolio.intrinsicRisk}/100.`,
+      smartWalletMovement: "Smart-wallet comparison is tracked separately in Smart Money Sentinel.",
+      downgradeProbability: riskScore
+    });
+  }
+
+  if (highestRiskPosition) {
+    const positionRisk = clamp(Math.max(highestRiskPosition.systemicRisk, highestRiskPosition.intrinsicRisk));
+    events.push({
+      id: `position-risk-${highestRiskPosition.id}`,
+      protocol: highestRiskPosition.protocol,
+      oldRating: "NR",
+      newRating: highestRiskPosition.rating,
+      confidence: 0.78,
+      timestamp,
+      signal: `${highestRiskPosition.asset} is the highest-risk live position currently returned for this wallet.`,
+      severity: severityFromScore(positionRisk),
+      timeframe: "Current holdings",
+      reason: highestRiskPosition.mainRiskReason,
+      smartWalletMovement: "Smart-wallet comparison is tracked separately in Smart Money Sentinel.",
+      downgradeProbability: positionRisk
+    });
+  }
+
+  if (stress.exitLiquidityLadder.length > 0 || stress.panicMeter > 0) {
+    events.push({
+      id: "exit-liquidity-pressure",
+      protocol: "Exit liquidity",
+      oldRating: "NR",
+      newRating: portfolio.rating,
+      confidence: 0.76,
+      timestamp,
+      signal: stress.headline,
+      severity: severityFromScore(stress.panicMeter),
+      timeframe: "Exit window",
+      reason: stress.downsideTiming,
+      smartWalletMovement: "Smart-wallet comparison is tracked separately in Smart Money Sentinel.",
+      downgradeProbability: clamp(stress.panicMeter)
+    });
+  }
+
+  const panicMeter = clamp(Math.max(riskScore, stress.panicMeter));
+  const ratingDriftSignals = portfolio.rating === "NR"
+    ? []
+    : [`Current wallet rating is ${portfolio.rating}; no historical drift window was returned in this scan.`];
+  const systemicRiskSpikeIndicators = uniqueStrings([
+    ...(portfolio.systemicRisk >= 70 ? [`Wallet systemic risk is ${portfolio.systemicRisk}/100 (${scoreLabel(portfolio.systemicRisk)}).`] : []),
+    ...(highestRiskPosition && highestRiskPosition.systemicRisk >= 70
+      ? [`${highestRiskPosition.protocol} / ${highestRiskPosition.asset} systemic risk is ${highestRiskPosition.systemicRisk}/100.`]
+      : [])
+  ]);
+  const outflowSignals = stress.exitLiquidityLadder.length > 0
+    ? [stress.headline]
+    : [];
+
   return {
-    data,
-    source: warnings.length > 0 ? "mixed" : "xerberus",
-    warnings: uniqueStrings(warnings)
+    data: {
+      events,
+      panicMeter,
+      outflowSignals,
+      ratingDriftSignals,
+      systemicRiskSpikeIndicators,
+      smartWalletExitComparison: "Smart-money comparison is available in Smart Money Sentinel."
+    },
+    warnings
   };
+}
+
+async function withSoftTimeout<TValue>(promise: Promise<TValue>, timeoutMs: number, fallback: TValue): Promise<TValue> {
+  return Promise.race([
+    promise,
+    new Promise<TValue>((resolve) => {
+      setTimeout(() => resolve(fallback), timeoutMs);
+    })
+  ]);
 }
 
 async function attemptXerberusTool<TData>(
@@ -108,303 +497,198 @@ async function attemptXerberusTool<TData>(
   } catch (error) {
     logXerberusWarning(`${label} failed during product API enrichment.`, error);
     return {
-      warning: `${label} is temporarily unavailable.`
+      warning: warningForTool(label, error)
     };
   }
 }
 
-async function attemptMoralisPortfolio(walletAddress: string): Promise<ToolAttempt<MoralisPortfolio>> {
-  try {
-    return { data: await getWalletPortfolio(walletAddress) };
-  } catch (error) {
-    logXerberusWarning("Moralis wallet portfolio ingestion failed.", error);
-    return {
-      warning: "Wallet portfolio ingestion is temporarily unavailable."
-    };
-  }
-}
+async function getRatedPositions(walletAddress: string, systemicFallback?: number) {
+  const positionRows = await attemptXerberusTool<unknown>("get_positions", () => xerberusService.getPositions({ walletAddress }));
+  const tokenTargets = uniqueStrings(positionTargetsFromXerberus(positionRows.data)).slice(0, 8);
+  const tokenRatingAttempts = await Promise.all(
+    tokenTargets.map((target) => attemptXerberusTool<RatingResponse>(`rate_token:${target}`, () => xerberusService.rateToken({ address: target })))
+  );
+  const tokenRatings = tokenRatingAttempts.map((attempt) => attempt.data).filter((data): data is RatingResponse => Boolean(data));
+  const positions = portfolioPositionsFromXerberus([positionRows.data], tokenRatings, systemicFallback);
+  const warnings = [
+    positionRows.warning,
+    ...tokenRatingAttempts.map((attempt) => attempt.warning)
+  ].filter((warning): warning is string => Boolean(warning));
 
-function emptyWalletAnalysis(walletAddress = ""): WalletAnalysis {
   return {
-    id: "analysis_unavailable",
-    walletAddress,
-    overallRiskScore: 0,
-    intrinsicRisk: 0,
-    systemicRisk: 0,
-    rating: "NR",
-    trend: "stable",
-    analyzedAt: new Date().toISOString(),
-    positions: []
+    positions,
+    warnings,
+    hasPositionRows: Boolean(positionRows.data)
   };
 }
 
-function emptyStressTestingResult(): StressTestingResult {
+async function getPositionProfile(walletAddress: string, systemicFallback?: number) {
+  const positionRows = await attemptXerberusTool<unknown>("get_positions", () => xerberusService.getPositions({ walletAddress }));
+  const positions = portfolioPositionsFromXerberus([positionRows.data], [], systemicFallback);
+
   return {
-    headline: "Run Stress Testing Engine after live risk intelligence is available.",
-    panicMeter: 0,
-    downsideExposureUsd: 0,
-    liquidationBufferPercent: 0,
-    crowdingQueueRank: "No live queue available",
-    downsideTiming: "No downside timing available yet.",
-    scenarios: [],
-    exitLiquidityLadder: []
+    positions,
+    warnings: positionRows.warning ? [positionRows.warning] : [],
+    hasPositionRows: Boolean(positionRows.data)
   };
 }
 
-function emptyContagionMap(): ContagionMap {
-  return {
-    nodes: [],
-    edges: [],
-    highestRiskPath: []
-  };
-}
-
-function emptyPanicOutflowResult() {
-  return {
-    events: [] as RiskMigrationEvent[],
-    panicMeter: 0,
-    outflowSignals: [] as string[],
-    ratingDriftSignals: [] as string[],
-    systemicRiskSpikeIndicators: [] as string[],
-    smartWalletExitComparison: "No live smart-money comparison available yet."
-  };
-}
-
-function emptyBeautifulOutputsResult(): BeautifulOutputsResult {
-  return {
-    reportStatus: "unavailable",
-    generatedAt: new Date().toISOString(),
-    artifacts: [],
-    ratingDriftAlerts: [],
-    disclaimer: "Not financial advice."
-  };
-}
-
-function normalizeRatingResponse(response: unknown) {
-  if (!isRecord(response)) {
-    return {};
-  }
+async function getExitLadderStress(walletAddress: string) {
+  const ladder = await attemptXerberusTool<PortfolioLadderResponse>("portfolio_ladder", () => xerberusService.getPortfolioLadder({ walletAddress }));
+  const ladderSteps = liquidityLadderFrom(ladder.data);
+  const ladderMetrics = stressMetricsFromLadder(ladder.data, ladderSteps);
 
   return {
-    rating: ratingFrom(response.rating ?? response.grade),
-    score: numberFrom(response.score ?? response.riskScore ?? response.overallRiskScore),
-    intrinsicRisk: numberFrom(response.intrinsicRisk ?? response.intrinsic_risk),
-    systemicRisk: numberFrom(response.systemicRisk ?? response.systemic_risk),
-    trend: stringFrom(response.trend),
-    reasons: Array.isArray(response.reasons)
-      ? response.reasons.filter((reason): reason is string => typeof reason === "string")
-      : []
+    data: {
+      ...emptyStressTestingResult(),
+      ...ladderMetrics,
+      panicMeter: ladderSteps.length > 0 ? ladderMetrics.panicMeter : 0,
+      exitLiquidityLadder: ladderSteps
+    },
+    warnings: ladder.warning ? [ladder.warning] : []
   };
-}
-
-function normalizeScreenRatings(response: unknown) {
-  if (Array.isArray(response)) {
-    return response.map(normalizeRatingResponse);
-  }
-
-  if (isRecord(response) && Array.isArray(response.results)) {
-    return response.results.map(normalizeRatingResponse);
-  }
-
-  return [];
-}
-
-function intrinsicRiskReasons(response: IntrinsicRiskResponse | undefined) {
-  if (!response || !Array.isArray(response.risks)) {
-    return [];
-  }
-
-  return response.risks
-    .map((risk) => risk.description ?? risk.title)
-    .filter((reason): reason is string => typeof reason === "string" && reason.length > 0);
-}
-
-function systemicDependencies(response: SystemicRiskResponse | undefined) {
-  if (!response || !Array.isArray(response.dependencies)) {
-    return [];
-  }
-
-  return response.dependencies
-    .map((dependency) => ({
-      name: dependency.name,
-      category: dependency.category,
-      exposure: dependency.exposure
-    }))
-    .filter((dependency) => dependency.name);
-}
-
-function severityFrom(score: number): StressScenario["severity"] {
-  if (score >= 85) {
-    return "critical";
-  }
-
-  if (score >= 65) {
-    return "high";
-  }
-
-  return "moderate";
-}
-
-function scenarioFrom(id: string, name: string, response: StressScenarioResponse | undefined): StressScenario | undefined {
-  if (!response) {
-    return undefined;
-  }
-
-  const drawdown = clamp(numberFrom(response.drawdownPercent) ?? 0);
-  const systemicRisk = clamp(numberFrom(response.systemicRiskAfterShock) ?? 0);
-
-  return {
-    id,
-    name,
-    impactSummary: response.summary ?? "Scenario analysis completed.",
-    portfolioDrawdownPercent: drawdown,
-    systemicRiskAfterShock: systemicRisk,
-    severity: severityFrom(systemicRisk)
-  };
-}
-
-function liquidityLadderFrom(response: PortfolioLadderResponse | undefined): LiquidityLadderStep[] {
-  if (!response || !Array.isArray(response.steps)) {
-    return [];
-  }
-
-  return response.steps.map((step) => ({
-    window: step.window,
-    exitablePercent: clamp(step.exitablePercent ?? 0),
-    expectedSlippagePercent: Math.max(0, step.expectedSlippagePercent ?? 0),
-    note: step.note ?? "Exit ladder step."
-  }));
-}
-
-function dependencyNode(dependency: ReturnType<typeof systemicDependencies>[number], index: number): ContagionNode {
-  const normalizedName = dependency.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const category: ContagionNode["category"] = dependency.category?.toLowerCase().includes("asset") ? "Asset" : "Protocol";
-
-  return {
-    id: normalizedName || `dependency-${index}`,
-    label: dependency.name,
-    rating: "NR",
-    exposureUsd: Math.round((dependency.exposure ?? 0) * 1000),
-    category
-  };
-}
-
-function defiPositionLabel(position: MoralisDefiPosition) {
-  return position.protocolName;
-}
-
-function tokenPositionLabel(token: MoralisTokenHolding) {
-  return token.name === token.symbol ? token.symbol : `${token.name} (${token.symbol})`;
-}
-
-function portfolioPositionsFrom(portfolio: MoralisPortfolio, screenData: unknown, systemicScore?: number) {
-  const screenRatings = normalizeScreenRatings(screenData);
-  const combined = [
-    ...portfolio.defiPositions.map((position) => ({
-      protocol: defiPositionLabel(position),
-      asset: position.asset,
-      chain: position.chain,
-      valueUsd: position.valueUsd,
-      address: position.positionAddress ?? position.tokenAddresses[0],
-      category: position.category
-    })),
-    ...portfolio.tokenHoldings.map((token) => ({
-      protocol: token.nativeToken ? token.symbol : tokenPositionLabel(token),
-      asset: token.symbol,
-      chain: token.chain,
-      valueUsd: token.usdValue,
-      address: token.tokenAddress,
-      category: "token"
-    }))
-  ].sort((a, b) => b.valueUsd - a.valueUsd);
-  const total = combined.reduce((sum, position) => sum + position.valueUsd, 0);
-
-  return combined.map((position, index) => {
-    const rating = screenRatings[index];
-
-    return {
-      protocol: position.protocol,
-      asset: position.asset,
-      chain: position.chain,
-      valueUsd: Math.round(position.valueUsd),
-      allocationPercent: total > 0 ? Math.round((position.valueUsd / total) * 100) : 0,
-      rating: rating?.rating ?? "NR",
-      intrinsicRisk: clamp(rating?.intrinsicRisk ?? 0),
-      systemicRisk: clamp(rating?.systemicRisk ?? systemicScore ?? 0),
-      mainRiskReason: rating?.reasons?.[0] ?? `${position.category} exposure discovered from live wallet data.`
-    };
-  });
-}
-
-async function getPortfolioForRisk(walletAddress?: string) {
-  if (!walletAddress) {
-    return undefined;
-  }
-
-  const result = await attemptMoralisPortfolio(walletAddress);
-  return result.data;
 }
 
 export async function getWalletAnalysisWithXerberus(walletAddress = "") {
-  const portfolio = await attemptMoralisPortfolio(walletAddress);
-
-  if (!portfolio.data) {
-    return unavailableResult(emptyWalletAnalysis(walletAddress), portfolio.warning ? [portfolio.warning] : []);
-  }
-
   if (!getXerberusConfig().isConfigured) {
     return unavailableResult(emptyWalletAnalysis(walletAddress));
   }
 
-  const screenPositions = [
-    ...portfolio.data.defiPositions.map((position) => ({
-      protocol: position.protocolName,
-      asset: position.asset,
-      chain: position.chain,
-      address: position.positionAddress ?? position.tokenAddresses[0],
-      valueUsd: position.valueUsd
-    })),
-    ...portfolio.data.tokenHoldings.map((token) => ({
-      protocol: token.name,
-      asset: token.symbol,
-      chain: token.chain,
-      address: token.tokenAddress,
-      valueUsd: token.usdValue
-    }))
-  ].slice(0, 50);
-
-  const [entity, screen, intrinsic, systemic] = await Promise.all([
+  const [entity, positionProfile] = await Promise.all([
     attemptXerberusTool<RatingResponse>("rate_entity", () => xerberusService.rateEntity({ walletAddress })),
-    attemptXerberusTool<RatingResponse[]>("screen", () => xerberusService.screen({ positions: screenPositions })),
-    attemptXerberusTool<IntrinsicRiskResponse>("intrinsic_open_risks", () => xerberusService.getIntrinsicOpenRisks({ walletAddress })),
-    attemptXerberusTool<SystemicRiskResponse>("risk_decomposition", () => xerberusService.getRiskDecomposition({ walletAddress }))
+    getRatedPositions(walletAddress)
   ]);
-
-  const successes = [entity.data, screen.data, intrinsic.data, systemic.data].filter((data) => data !== undefined).length;
-  const warnings = [portfolio.warning, entity.warning, screen.warning, intrinsic.warning, systemic.warning].filter((warning): warning is string => Boolean(warning));
+  const successes = [entity.data, positionProfile.hasPositionRows ? positionProfile.positions : undefined].filter((data) => data !== undefined).length;
+  const warnings = [entity.warning, ...positionProfile.warnings].filter((warning): warning is string => Boolean(warning));
 
   if (successes === 0) {
     return unavailableResult(emptyWalletAnalysis(walletAddress), warnings);
   }
 
   const entityRating = normalizeRatingResponse(entity.data);
-  const systemicScore = numberFrom(systemic.data?.score);
-  const positions = portfolioPositionsFrom(portfolio.data, screen.data, systemicScore);
-  const intrinsicAverage = positions.length > 0 ? positions.reduce((sum, position) => sum + position.intrinsicRisk, 0) / positions.length : 0;
-  const systemicAverage = positions.length > 0 ? positions.reduce((sum, position) => sum + position.systemicRisk, 0) / positions.length : 0;
-  const score = clamp(entityRating.score ?? systemicScore ?? systemicAverage);
+  const positions = entityRating.systemicRisk !== undefined
+    ? positionProfile.positions.map((position) => ({
+      ...position,
+      systemicRisk: position.systemicRisk > 0 ? position.systemicRisk : clamp(entityRating.systemicRisk ?? 0)
+    }))
+    : positionProfile.positions;
+  const intrinsicRisk = entityRating.intrinsicRisk !== undefined
+    ? clamp(entityRating.intrinsicRisk)
+    : weightedAverageRisk(positions, (position) => position.intrinsicRisk);
+  const systemicRisk = entityRating.systemicRisk !== undefined
+    ? clamp(entityRating.systemicRisk)
+    : weightedAverageRisk(positions, (position) => position.systemicRisk);
+  const finalWarnings = uniqueStrings([
+    ...warnings,
+    ...(intrinsicRisk === 0 ? ["Intrinsic risk was not returned for this wallet or its current positions."] : [])
+  ]);
+
+  if (!ratingHasUsableRiskData(entityRating) && positions.length === 0) {
+    return unavailableResult(
+      emptyWalletAnalysis(walletAddress),
+      uniqueStrings([...finalWarnings, entityRating.reasons?.[0] ?? "Wallet-level rating is not available for this address."])
+    );
+  }
+
+  const highestPositionRisk = Math.max(0, ...positions.map((position) => Math.max(position.intrinsicRisk, position.systemicRisk)));
+  const score = clamp(entityRating.score ?? Math.max(intrinsicRisk, systemicRisk, highestPositionRisk));
+  const rating = entityRating.rating ?? worstPositionRating(positions) ?? (score > 0 ? ratingFromScore(score) : "NR");
 
   return liveResult<WalletAnalysis>({
     id: "analysis_live",
     walletAddress,
     overallRiskScore: score,
-    intrinsicRisk: clamp(entityRating.intrinsicRisk ?? intrinsicAverage),
-    systemicRisk: clamp(entityRating.systemicRisk ?? systemicScore ?? systemicAverage),
-    rating: entityRating.rating ?? "NR",
+    intrinsicRisk,
+    systemicRisk,
+    rating,
     trend: entityRating.trend === "improving" || entityRating.trend === "deteriorating" ? entityRating.trend : trendFrom(score),
     analyzedAt: new Date().toISOString(),
     positions
-  }, warnings);
+  }, finalWarnings);
+}
+
+export async function getPortfolioIntrinsicWithXerberus(walletAddress = "") {
+  if (!getXerberusConfig().isConfigured) {
+    return unavailableResult<PortfolioIntrinsicSection>({ score: 0, risks: [] });
+  }
+
+  if (!walletAddress) {
+    return unavailableResult<PortfolioIntrinsicSection>({ score: 0, risks: [] }, ["Select or analyze a wallet to view intrinsic risk details."]);
+  }
+
+  const positionProfile = await getRatedPositions(walletAddress);
+  const positionRisks = uniqueStrings(positionProfile.positions.map((position) => position.mainRiskReason));
+  const positionScore = weightedAverageRisk(positionProfile.positions, (position) => position.intrinsicRisk);
+
+  if (positionProfile.positions.length > 0 && positionScore > 0) {
+    return liveResult<PortfolioIntrinsicSection>({
+      score: positionScore,
+      risks: positionRisks
+    }, positionProfile.warnings);
+  }
+
+  const intrinsic = await attemptXerberusTool<IntrinsicRiskResponse>("portfolio_intrinsic_posture", () => xerberusService.getPortfolioIntrinsicPosture({ walletAddress }));
+
+  if (!intrinsic.data) {
+    return unavailableResult<PortfolioIntrinsicSection>({ score: 0, risks: [] }, positionProfile.warnings.length > 0 ? positionProfile.warnings : intrinsic.warning ? [intrinsic.warning] : []);
+  }
+
+  const risks = intrinsicRiskReasons(intrinsic.data);
+  const score = scoreFromOpenRiskCount(intrinsic.data);
+
+  if (payloadHasError(intrinsic.data) || (risks.length === 0 && score === 0) || risks.some(textIndicatesUnavailable)) {
+    return unavailableResult<PortfolioIntrinsicSection>({ score: 0, risks: [] }, uniqueStrings([...positionProfile.warnings, "Intrinsic risk details are temporarily unavailable."]));
+  }
+
+  return liveResult<PortfolioIntrinsicSection>({ score, risks }, uniqueStrings([...positionProfile.warnings, intrinsic.warning].filter((warning): warning is string => Boolean(warning))));
+}
+
+export async function getPortfolioSystemicWithXerberus(walletAddress = "") {
+  if (!getXerberusConfig().isConfigured) {
+    return unavailableResult<PortfolioSystemicSection>({ score: 0, dependencies: [] });
+  }
+
+  if (!walletAddress) {
+    return unavailableResult<PortfolioSystemicSection>({ score: 0, dependencies: [] }, ["Select or analyze a wallet to view systemic risk details."]);
+  }
+
+  const portfolio = await getWalletAnalysisWithXerberus(walletAddress);
+
+  if (portfolio.source === "unavailable") {
+    return unavailableResult<PortfolioSystemicSection>({ score: 0, dependencies: [] }, portfolio.warnings);
+  }
+
+  const dependencies = portfolio.data.positions.map((position) => ({
+    name: `${position.protocol} / ${position.asset}`,
+    category: position.chain,
+    exposure: position.valueUsd
+  }));
+
+  return liveResult<PortfolioSystemicSection>({
+    score: portfolio.data.systemicRisk,
+    summary: `Wallet rating ${portfolio.data.rating}; systemic risk ${portfolio.data.systemicRisk}/100.`,
+    dependencies
+  });
+}
+
+export async function getPortfolioScreenWithXerberus(walletAddress = "") {
+  if (!getXerberusConfig().isConfigured) {
+    return unavailableResult<PortfolioScreenSection>({ positions: [] });
+  }
+
+  if (!walletAddress) {
+    return unavailableResult<PortfolioScreenSection>({ positions: [] }, ["Select or analyze a wallet to view position screening."]);
+  }
+
+  const positionProfile = await getRatedPositions(walletAddress);
+  const positions = positionProfile.positions;
+  const warnings = positionProfile.warnings;
+
+  if (positions.length === 0) {
+    return unavailableResult<PortfolioScreenSection>({ positions: [] }, warnings.length ? warnings : ["Position screening is temporarily unavailable."]);
+  }
+
+  return liveResult<PortfolioScreenSection>({ positions }, warnings);
 }
 
 export async function getStressTestingWithXerberus(walletAddress?: string) {
@@ -412,44 +696,41 @@ export async function getStressTestingWithXerberus(walletAddress?: string) {
     return unavailableResult(emptyStressTestingResult());
   }
 
-  const portfolio = await getPortfolioForRisk(walletAddress);
-  const positions = portfolio ? [
-    ...portfolio.defiPositions.map((position) => ({
-      protocol: position.protocolName,
-      asset: position.asset,
-      chain: position.chain,
-      valueUsd: position.valueUsd,
-      address: position.positionAddress ?? position.tokenAddresses[0]
-    })),
-    ...portfolio.tokenHoldings.map((token) => ({
-      protocol: token.name,
-      asset: token.symbol,
-      chain: token.chain,
-      valueUsd: token.usdValue,
-      address: token.tokenAddress
-    }))
-  ] : undefined;
+  if (!walletAddress) {
+    return unavailableResult(emptyStressTestingResult(), ["Select or analyze a wallet to run stress testing."]);
+  }
+
+  const [ladder, positionRows] = await Promise.all([
+    attemptXerberusTool<PortfolioLadderResponse>("portfolio_ladder", () => xerberusService.getPortfolioLadder({ walletAddress })),
+    attemptXerberusTool<unknown>("get_positions", () => xerberusService.getPositions({ walletAddress }))
+  ]);
+  const ladderSteps = liquidityLadderFrom(ladder.data);
+  const debtDetected = hasDebtPosition(positionRows.data);
 
   const scenarioInputs = [
     { id: "eth_drop_40", scenario: "eth_drop_40", label: "What if ETH drops 40%?" },
     { id: "usdc_depeg", scenario: "usdc_depeg", label: "What if USDC depegs?" },
-    { id: "liquidity_crunch", scenario: "liquidity_crunch", label: "What if liquidity dries up?" },
-    { id: "stablecoin_contagion", scenario: "stablecoin_contagion", label: "What if stablecoin contagion spreads?" }
   ];
 
-  const [scenarioAttempts, ladder, crowding] = await Promise.all([
-    Promise.all(scenarioInputs.map((scenario) => attemptXerberusTool<StressScenarioResponse>(
+  const scenarioAttempts = ladderSteps.length > 0 || ladder.warning
+    ? [] as Array<ToolAttempt<StressScenarioResponse>>
+    : await Promise.all(scenarioInputs.map((scenario) => attemptXerberusTool<StressScenarioResponse>(
       `simulate_scenario:${scenario.scenario}`,
-      () => xerberusService.simulateScenario({ walletAddress, scenario: scenario.scenario, positions })
-    ))),
-    attemptXerberusTool<PortfolioLadderResponse>("portfolio_ladder", () => xerberusService.getPortfolioLadder({ walletAddress })),
-    attemptXerberusTool<CrowdingQueueResponse>("crowding_queue", () => xerberusService.getCrowdingQueue({ walletAddress }))
-  ]);
+      () => xerberusService.simulateScenario({ walletAddress, scenario: scenario.scenario })
+    )));
+  const crowding = debtDetected
+    ? await withSoftTimeout(
+      attemptXerberusTool<CrowdingQueueResponse>("crowding_queue", () => xerberusService.getCrowdingQueue({ walletAddress })),
+      4_000,
+      { warning: "Crowding queue details are temporarily unavailable." }
+    )
+    : {} as ToolAttempt<CrowdingQueueResponse>;
 
-  const successes = [...scenarioAttempts.map((attempt) => attempt.data), ladder.data, crowding.data].filter((data) => data !== undefined).length;
+  const successes = [...scenarioAttempts.map((attempt) => attempt.data), ladder.data, positionRows.data, crowding.data].filter((data) => data !== undefined).length;
   const warnings = [
     ...scenarioAttempts.map((attempt) => attempt.warning),
     ladder.warning,
+    positionRows.warning,
     crowding.warning
   ].filter((warning): warning is string => Boolean(warning));
 
@@ -459,21 +740,23 @@ export async function getStressTestingWithXerberus(walletAddress?: string) {
 
   const scenarios = scenarioAttempts
     .map((attempt, index) => scenarioFrom(scenarioInputs[index].id, scenarioInputs[index].label, attempt.data))
-    .filter((scenario): scenario is StressScenario => Boolean(scenario));
-  const maxSystemicRisk = Math.max(0, ...scenarios.map((scenario) => scenario.systemicRiskAfterShock));
-  const maxDrawdown = Math.max(0, ...scenarios.map((scenario) => scenario.portfolioDrawdownPercent));
-  const ladderSteps = liquidityLadderFrom(ladder.data);
+    .filter((scenario): scenario is StressScenario => Boolean(scenario && (scenario.portfolioDrawdownPercent > 0 || scenario.systemicRiskAfterShock > 0 || scenario.impactSummary !== "Scenario analysis completed.")));
+  if (scenarios.length === 0 && ladderSteps.length === 0 && !crowding.data?.rank && !crowding.data?.summary) {
+    return unavailableResult(emptyStressTestingResult(), warnings.length ? warnings : ["Stress testing outputs are temporarily unavailable."]);
+  }
+  const ladderMetrics = stressMetricsFromLadder(ladder.data, ladderSteps);
+  const maxSystemicRisk = Math.max(ladderMetrics.panicMeter, ...scenarios.map((scenario) => scenario.systemicRiskAfterShock));
 
   return liveResult<StressTestingResult>({
-    headline: scenarios.length > 0 ? "Stress scenarios are available for review." : "Exit and crowding data are available for review.",
+    headline: scenarios.length > 0 ? "Stress scenarios are available for review." : ladderMetrics.headline,
     panicMeter: clamp(maxSystemicRisk),
-    downsideExposureUsd: maxDrawdown,
-    liquidationBufferPercent: 0,
-    crowdingQueueRank: crowding.data?.rank ?? crowding.data?.summary ?? "No crowding queue rank available",
-    downsideTiming: crowding.data?.summary ?? "Review the liquidity ladder for downside timing.",
+    downsideExposureUsd: ladderMetrics.downsideExposureUsd,
+    liquidationBufferPercent: debtDetected ? 0 : 100,
+    crowdingQueueRank: crowding.data?.rank ?? crowding.data?.summary ?? (debtDetected ? "Queue details unavailable" : "No levered debt detected"),
+    downsideTiming: crowding.data?.summary ?? ladderMetrics.downsideTiming,
     scenarios,
     exitLiquidityLadder: ladderSteps
-  }, warnings);
+  }, ladderSteps.length > 0 ? [] : warnings);
 }
 
 export async function getContagionWithXerberus(walletAddress?: string) {
@@ -481,41 +764,20 @@ export async function getContagionWithXerberus(walletAddress?: string) {
     return unavailableResult(emptyContagionMap());
   }
 
-  const [riskDecomposition, infrastructure, backing] = await Promise.all([
-    attemptXerberusTool<SystemicRiskResponse>("risk_decomposition", () => xerberusService.getRiskDecomposition({ walletAddress })),
-    attemptXerberusTool<SystemicRiskResponse>("infrastructure_risk", () => xerberusService.getInfrastructureRisk({ walletAddress })),
-    attemptXerberusTool<SystemicRiskResponse>("backing_composition", () => xerberusService.getBackingComposition({ walletAddress }))
-  ]);
-
-  const successes = [riskDecomposition.data, infrastructure.data, backing.data].filter((data) => data !== undefined).length;
-  const warnings = [riskDecomposition.warning, infrastructure.warning, backing.warning].filter((warning): warning is string => Boolean(warning));
-
-  if (successes === 0) {
-    return unavailableResult(emptyContagionMap(), warnings);
+  if (!walletAddress) {
+    return unavailableResult(emptyContagionMap(), ["Select or analyze a wallet to view contagion paths."]);
   }
 
-  const dependencyRecords = uniqueStrings([
-    ...systemicDependencies(riskDecomposition.data).map((dependency) => dependency.name),
-    ...systemicDependencies(infrastructure.data).map((dependency) => dependency.name),
-    ...systemicDependencies(backing.data).map((dependency) => dependency.name)
-  ]).map((name, index) => dependencyNode({ name, category: undefined, exposure: undefined }, index));
-  const nodes: ContagionNode[] = [
-    ...dependencyRecords,
-    { id: "wallet", label: "Your Position", rating: "NR", exposureUsd: 0, category: "User" }
-  ];
-  const edges = dependencyRecords.map((node, index) => ({
-    id: `dependency_edge_${index}`,
-    source: node.id,
-    target: "wallet",
-    dependency: "Systemic dependency",
-    weight: 0.58 + index * 0.08
-  }));
+  const positionProfile = await getPositionProfile(walletAddress);
 
-  return liveResult<ContagionMap>({
-    nodes,
-    edges,
-    highestRiskPath: dependencyRecords.length > 0 ? [...dependencyRecords.map((node) => node.label), "Your Position"] : []
-  }, warnings);
+  if (positionProfile.positions.length === 0) {
+    return unavailableResult(emptyContagionMap(), positionProfile.warnings.length > 0 ? positionProfile.warnings : ["No live portfolio exposure graph is available for this wallet yet."]);
+  }
+
+  return liveResult<ContagionMap>(contagionMapFromPositions({
+    ...emptyWalletAnalysis(walletAddress),
+    positions: positionProfile.positions
+  }));
 }
 
 export async function getPanicOutflowWithXerberus(walletAddress?: string) {
@@ -523,63 +785,26 @@ export async function getPanicOutflowWithXerberus(walletAddress?: string) {
     return unavailableResult(emptyPanicOutflowResult());
   }
 
-  const [riskDecomposition, infrastructure] = await Promise.all([
-    attemptXerberusTool<SystemicRiskResponse>("risk_decomposition", () => xerberusService.getRiskDecomposition({ walletAddress, entityId: walletAddress ? undefined : "xentinel-portfolio" })),
-    attemptXerberusTool<SystemicRiskResponse>("infrastructure_risk", () => xerberusService.getInfrastructureRisk({ walletAddress, entityId: walletAddress ? undefined : "xentinel-portfolio" }))
-  ]);
-  const smartMoney = await getSmartMoneyLive().catch(() => ({ wallets: [], source: "unavailable" as const, warnings: [] as string[] }));
-  const warnings = [riskDecomposition.warning, infrastructure.warning].filter((warning): warning is string => Boolean(warning));
-  const successes = [riskDecomposition.data, infrastructure.data].filter((data) => data !== undefined).length;
-
-  if (successes === 0) {
-    return unavailableResult(emptyPanicOutflowResult(), warnings);
+  if (!walletAddress) {
+    return unavailableResult(emptyPanicOutflowResult(), ["Select or analyze a wallet to scan panic and outflow signals."]);
   }
 
-  const systemicScore = clamp(numberFrom(riskDecomposition.data?.score) ?? 0);
-  const infrastructureSummary = stringFrom(infrastructure.data?.summary);
-  const dependencyNames = systemicDependencies(riskDecomposition.data).map((dependency) => dependency.name);
-  const exitWallets = smartMoney.wallets.filter((wallet) => wallet.exposureChangePercent < 0);
-  const events: RiskMigrationEvent[] = [
-    ...(infrastructureSummary ? [{
-      id: "infrastructure-risk-change",
-      protocol: "Infrastructure",
-      oldRating: "NR" as RiskRating,
-      newRating: "NR" as RiskRating,
-      confidence: 0.7,
-      timestamp: new Date().toISOString(),
-      signal: infrastructureSummary,
-      severity: systemicScore >= 75 ? "high" as const : "medium" as const,
-      timeframe: "Current",
-      reason: infrastructureSummary,
-      smartWalletMovement: exitWallets.length > 0 ? `${exitWallets.length} tracked wallet exposure reductions detected.` : "No tracked wallet exit signal detected.",
-      downgradeProbability: systemicScore
-    }] : []),
-    ...exitWallets.map((wallet) => ({
-      id: `smart-wallet-exit-${wallet.id}`,
-      protocol: wallet.label,
-      oldRating: "NR" as RiskRating,
-      newRating: wallet.currentRiskRating,
-      confidence: wallet.confidence,
-      timestamp: wallet.lastMovementAt,
-      signal: wallet.recentMove,
-      severity: Math.abs(wallet.exposureChangePercent) >= 25 ? "high" as const : "medium" as const,
-      timeframe: "Since previous snapshot",
-      reason: wallet.recentMove,
-      smartWalletMovement: wallet.recentMove,
-      downgradeProbability: clamp(Math.abs(wallet.exposureChangePercent))
-    }))
-  ];
+  const [portfolio, stress] = await Promise.all([
+    getWalletAnalysisWithXerberus(walletAddress),
+    getExitLadderStress(walletAddress)
+  ]);
 
-  return liveResult({
-    events,
-    panicMeter: systemicScore,
-    outflowSignals: exitWallets.map((wallet) => wallet.recentMove),
-    ratingDriftSignals: [],
-    systemicRiskSpikeIndicators: dependencyNames,
-    smartWalletExitComparison: exitWallets.length > 0
-      ? `${exitWallets.length} tracked wallet exposure reductions detected.`
-      : "No tracked smart-wallet exit signal detected."
-  }, warnings);
+  if (portfolio.source === "unavailable" && stress.data.exitLiquidityLadder.length === 0) {
+    return unavailableResult(emptyPanicOutflowResult(), uniqueStrings([...portfolio.warnings, ...stress.warnings]));
+  }
+
+  const derived = panicEventsFromPortfolioAndStress(portfolio.data, stress.data);
+
+  if (derived.data.events.length === 0 && derived.data.panicMeter === 0) {
+    return unavailableResult(emptyPanicOutflowResult(), ["No live panic or outflow signals are available for this wallet yet."]);
+  }
+
+  return liveResult(derived.data, derived.warnings);
 }
 
 export async function getBeautifulOutputsWithXerberus(walletAddress?: string) {
@@ -587,26 +812,81 @@ export async function getBeautifulOutputsWithXerberus(walletAddress?: string) {
     return unavailableResult(emptyBeautifulOutputsResult());
   }
 
-  const report = await attemptXerberusTool<ReportResponse>("generate_report", () => xerberusService.generateReport({
-    walletAddress,
-    metadata: {
-      product: "Xentinel",
-      reportType: "wallet-risk",
-      includeStressTesting: true,
-      includePanicOutflows: true,
-      includeContagion: true
-    }
-  }));
-
-  if (!report.data) {
-    return unavailableResult(emptyBeautifulOutputsResult(), report.warning ? [report.warning] : []);
+  if (!walletAddress) {
+    return unavailableResult(emptyBeautifulOutputsResult(), ["Select or analyze a wallet to generate outputs."]);
   }
 
-  const status = report.data.status === "generated" ? "generated" : "queued";
+  const [report, portfolio] = await Promise.all([
+    attemptXerberusTool<ReportResponse>("generate_report", () => xerberusService.generateReport({
+      walletAddress,
+      kind: "entity",
+      metadata: {
+        format: "json",
+        includeCharts: false,
+        returnHtml: false
+      }
+    })),
+    getWalletAnalysisWithXerberus(walletAddress)
+  ]);
+
+  if (!report.data || payloadHasError(report.data)) {
+    if (portfolio.source === "unavailable") {
+      return unavailableResult(emptyBeautifulOutputsResult(), portfolio.warnings);
+    }
+
+    const highestRiskPosition = [...portfolio.data.positions].sort((left, right) => {
+      const leftRisk = Math.max(left.systemicRisk, left.intrinsicRisk);
+      const rightRisk = Math.max(right.systemicRisk, right.intrinsicRisk);
+      return rightRisk - leftRisk;
+    })[0];
+
+    return liveResult<BeautifulOutputsResult>({
+      reportStatus: "queued",
+      generatedAt: new Date().toISOString(),
+      artifacts: [
+        {
+          id: "wallet-risk-brief-preview",
+          title: "Wallet Risk Brief Preview",
+          description: `Current wallet rating is ${portfolio.data.rating} with an overall risk score of ${portfolio.data.overallRiskScore}/100.`,
+          status: "ready",
+          kind: "alert"
+        },
+        {
+          id: "risk-visual-summary",
+          title: "Risk Visual Summary",
+          description: `Intrinsic risk ${portfolio.data.intrinsicRisk}/100 and systemic risk ${portfolio.data.systemicRisk}/100 are ready for presentation.`,
+          status: "ready",
+          kind: "chart"
+        },
+        ...(highestRiskPosition ? [{
+          id: "top-position-alert",
+          title: "Top Position Alert",
+          description: `${highestRiskPosition.protocol} / ${highestRiskPosition.asset} is the highest-risk returned position at ${Math.max(highestRiskPosition.intrinsicRisk, highestRiskPosition.systemicRisk)}/100.`,
+          status: "ready" as const,
+          kind: "alert" as const
+        }] : [])
+      ],
+      ratingDriftAlerts: portfolio.data.rating === "NR" ? [] : [
+        {
+          id: "wallet-rating-state",
+          protocol: "Wallet risk state",
+          from: "NR",
+          to: portfolio.data.rating,
+          severity: outputSeverityFromScore(portfolio.data.overallRiskScore),
+          summary: `Current wallet rating is ${portfolio.data.rating}; no historical drift window was returned in this scan.`,
+          detectedAt: new Date().toISOString()
+        }
+      ],
+      disclaimer: "Not financial advice."
+    });
+  }
+
+  const reportRecord = isRecord(report.data) ? report.data : {};
+  const status = report.data.status === "generated" || stringFrom(reportRecord.status) === "generated" ? "generated" : "queued";
 
   return liveResult<BeautifulOutputsResult>({
-    reportId: report.data.reportId,
-    reportUrl: report.data.url,
+    reportId: report.data.reportId ?? stringFrom(reportRecord.report_id) ?? stringFrom(reportRecord.id),
+    reportUrl: report.data.url ?? stringFrom(reportRecord.url) ?? stringFrom(reportRecord.href),
     reportStatus: status,
     generatedAt: new Date().toISOString(),
     artifacts: [
@@ -625,15 +905,45 @@ export async function getBeautifulOutputsWithXerberus(walletAddress?: string) {
 }
 
 export async function buildChatGroundingContext(question: string, walletAddress?: string) {
-  const [portfolio, stress, contagion, panic] = await Promise.all([
-    getWalletAnalysisWithXerberus(walletAddress),
-    getStressTestingWithXerberus(walletAddress),
-    getContagionWithXerberus(walletAddress),
-    getPanicOutflowWithXerberus(walletAddress)
-  ]);
+  if (!walletAddress) {
+    return {
+      question,
+      portfolioRiskContext: emptyWalletAnalysis(),
+      intrinsicRiskContext: [] as Array<{
+        protocol: string;
+        intrinsicRisk: number;
+        reason: string;
+      }>,
+      systemicRiskContext: {
+        portfolioSystemicRisk: 0,
+        contagionPath: [] as string[]
+      },
+      stressTestingContext: emptyStressTestingResult(),
+      panicOutflowContext: [] as RiskMigrationEvent[],
+      smartMoneyContext: [] as Array<{
+        label: string;
+        recentMove: string;
+        exposureChangePercent: number;
+        confidence: number;
+      }>,
+      source: "unavailable" as const,
+      warnings: ["Analyze a wallet to give the Co-Pilot live risk context."]
+    };
+  }
 
-  const sources = [portfolio.source, stress.source, contagion.source, panic.source];
-  const source = sourceFor(sources.filter((item) => item === "xerberus" || item === "mixed").length);
+  const [portfolio, stress] = await Promise.all([
+    getWalletAnalysisWithXerberus(walletAddress),
+    getExitLadderStress(walletAddress)
+  ]);
+  const contagion = portfolio.source === "unavailable"
+    ? emptyContagionMap()
+    : contagionMapFromPositions(portfolio.data);
+  const panic = panicEventsFromPortfolioAndStress(portfolio.data, stress.data);
+
+  const source = sourceFor((portfolio.source === "xerberus" || portfolio.source === "mixed" || stress.data.exitLiquidityLadder.length > 0) ? 1 : 0);
+  const warnings = source === "unavailable"
+    ? uniqueStrings([...portfolio.warnings, ...stress.warnings])
+    : [];
 
   return {
     question,
@@ -645,7 +955,7 @@ export async function buildChatGroundingContext(question: string, walletAddress?
     })),
     systemicRiskContext: {
       portfolioSystemicRisk: portfolio.data.systemicRisk,
-      contagionPath: contagion.data.highestRiskPath
+      contagionPath: contagion.highestRiskPath
     },
     stressTestingContext: stress.data,
     panicOutflowContext: panic.data.events,
@@ -656,6 +966,6 @@ export async function buildChatGroundingContext(question: string, walletAddress?
       confidence: number;
     }>,
     source,
-    warnings: uniqueStrings([...portfolio.warnings, ...stress.warnings, ...contagion.warnings, ...panic.warnings])
+    warnings
   };
 }

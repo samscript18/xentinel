@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     meta: {
       generatedAt: new Date().toISOString(),
       source: result.source,
+      status: result.status,
       warnings: result.warnings
     }
   };

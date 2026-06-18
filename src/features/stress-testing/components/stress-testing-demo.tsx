@@ -15,6 +15,15 @@ const severityStyles = {
   critical: "border-red-300/25 bg-red-300/10 text-red-100"
 };
 
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: value >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: value >= 1_000_000 ? 1 : 0
+  }).format(value);
+}
+
 export function StressTestingDemo() {
   const walletAddress = useSelectedWallet();
   const { data: response, isError, isLoading, refetch } = useStressTesting(walletAddress);
@@ -24,7 +33,7 @@ export function StressTestingDemo() {
     window: step.window,
     exitable: step.exitablePercent,
     slippage: step.expectedSlippagePercent
-  })) ?? [];
+  })).filter((step) => step.exitable > 0 || step.slippage > 0) ?? [];
 
   return (
     <div className="space-y-8">
@@ -48,10 +57,10 @@ export function StressTestingDemo() {
       {stress ? (
         <>
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Panic Meter" value={`${stress.panicMeter}/100`} detail="Early stress pressure" icon={<Gauge className="h-4 w-4" />} tone="red" />
-        <MetricCard label="Downside Exposure" value={`$${Math.round(stress.downsideExposureUsd / 1000)}K`} detail="Stressed loss at risk" icon={<ShieldAlert className="h-4 w-4" />} tone="amber" />
-        <MetricCard label="Liquidation Buffer" value={`${stress.liquidationBufferPercent}%`} detail="After ETH -40% shock" icon={<Layers className="h-4 w-4" />} tone="cyan" />
-        <MetricCard label="Crowding Queue" value={stress.crowdingQueueRank} detail="Returned by live queue analysis" icon={<Clock className="h-4 w-4" />} tone="violet" />
+        <MetricCard label="Panic Meter" value={`${stress.panicMeter}/100`} detail="1-day exit pressure" icon={<Gauge className="h-4 w-4" />} tone="red" />
+        <MetricCard label="Downside Exposure" value={formatUsd(stress.downsideExposureUsd)} detail="Not exitable inside 1 day" icon={<ShieldAlert className="h-4 w-4" />} tone="amber" />
+        <MetricCard label="Liquidation Buffer" value={`${stress.liquidationBufferPercent}%`} detail="Levered debt headroom" icon={<Layers className="h-4 w-4" />} tone="cyan" />
+        <MetricCard label="Crowding Queue" value={stress.crowdingQueueRank} detail="Exit queue status" icon={<Clock className="h-4 w-4" />} tone="violet" />
       </div>
 
       <section className="surface-panel rounded-lg p-5">
@@ -71,28 +80,34 @@ export function StressTestingDemo() {
         <section className="surface-panel rounded-lg p-5">
           <h2 className="text-lg font-semibold text-white">Exit Liquidity Ladder</h2>
           <p className="mt-1 text-sm text-muted-foreground">How much can exit, and how expensive does it get as panic builds?</p>
-          <div className="mt-5 h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ left: -12, right: 12, top: 8 }}>
-                <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
-                <XAxis dataKey="window" stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ background: "#0b1020", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8 }} />
-                <Bar dataKey="exitable" name="Exitable %" fill="#22d3ee" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="slippage" name="Expected slippage %" fill="#f87171" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {chartData.length > 0 ? (
+            <div className="mt-5 h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ left: -12, right: 12, top: 8 }}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="window" stroke="#94a3b8" tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ background: "#0b1020", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8 }} />
+                  <Bar dataKey="exitable" name="Exitable %" fill="#22d3ee" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="slippage" name="Expected slippage %" fill="#f87171" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-md border border-white/10 bg-white/[0.035] p-5 text-sm leading-6 text-muted-foreground">
+              Xerberus returned liquidity bands for this wallet, but no numeric exit percentages for charting.
+            </div>
+          )}
         </section>
 
         <section className="surface-panel rounded-lg p-5">
           <h2 className="text-lg font-semibold text-white">Liquidity Notes</h2>
           <div className="mt-5 space-y-3">
-            {stress.exitLiquidityLadder.map((step) => (
-              <div key={step.window} className="rounded-md border border-white/10 bg-white/[0.035] p-4">
+            {stress.exitLiquidityLadder.map((step, index) => (
+              <div key={`${step.window}-${index}`} className="rounded-md border border-white/10 bg-white/[0.035] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-white">{step.window}</p>
-                  <p className="text-sm text-cyan-100">{step.exitablePercent}% exitable</p>
+                  <p className="text-sm text-cyan-100">{step.exitablePercent > 0 ? `${step.exitablePercent}% exitable` : "Liquidity band"}</p>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.note}</p>
               </div>

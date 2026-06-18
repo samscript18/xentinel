@@ -2,6 +2,10 @@
 
 This folder contains Xentinel's server-only adapter for Xerberus.
 
+Xentinel uses Xerberus Enterprise MCP as the primary live risk intelligence source. Core product APIs do not require Moralis or another wallet-ingestion provider. If Xerberus returns wallet positions or exposure records, Xentinel normalizes them for the dashboard; if it does not, the UI shows wallet-level analysis without inventing positions.
+
+Xentinel does not require switching a global environment variable between Xerberus products at runtime. Configure both MCP credentials in deployment if both are available, then call Enterprise or Framework explicitly from server-side code. The current product APIs default to Enterprise because they power live wallet, systemic-risk, stress, contagion, exit, monitoring, and report flows.
+
 ## What the docs say
 
 The public Xerberus MCP page documents the Risk Framework MCP:
@@ -21,6 +25,7 @@ The Enterprise MCP page is the relevant surface for Xentinel's live systemic-ris
 - Tool output: JSON; chart tools return PNG blocks.
 - Responses include `data_window` and `is_stale` where applicable.
 - Write-tier tools include `watch_create` and `generate_report`.
+- The Streamable HTTP endpoint is stateful: initialize first, capture the `mcp-session-id` response header, send `notifications/initialized`, then include `mcp-session-id` on `tools/call`.
 
 ## Tool mapping
 
@@ -32,11 +37,12 @@ Xentinel exposes product-friendly service methods. Where the requested product m
 | `rateMarket` | `rate_market` | Documented |
 | `rateEntity` | `rate_entity` | Documented |
 | `screen` | `screen` | Documented |
+| `getPortfolioBrief` | `get_portfolio_brief` | Documented Enterprise wallet brief tool |
 | `getIntrinsicOpenRisks` | `get_failure_modes` | `intrinsic_open_risks` was not found in docs |
 | `getRiskDecomposition` | `look_through` | `risk_decomposition` was not found in docs |
 | `getInfrastructureRisk` | `infrastructure_risk` | Documented |
 | `getBackingComposition` | `backing_composition` | Documented |
-| `getPortfolioLadder` | `liquidity_exit_quote` | `portfolio_ladder` was not found in docs |
+| `getPortfolioLadder` | `portfolio_ladder` | Documented Enterprise wallet exit ladder |
 | `simulateScenario` | `simulate_scenario` | Documented |
 | `getCrowdingQueue` | `crowding_queue` | Documented |
 | `generateReport` | `generate_report` | Documented, write tier |

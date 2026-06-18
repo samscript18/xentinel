@@ -19,31 +19,49 @@ Your job:
 `;
 
 export function buildRiskContextPrompt(context: ChatGroundingContext) {
+  const portfolioHasRating = context.portfolioRiskContext.rating !== "NR" || context.portfolioRiskContext.overallRiskScore > 0 || context.portfolioRiskContext.positions.length > 0;
+  const stressHasNumbers = context.stressTestingContext.panicMeter > 0 || context.stressTestingContext.downsideExposureUsd > 0 || context.stressTestingContext.liquidationBufferPercent > 0 || context.stressTestingContext.scenarios.length > 0;
+  const stressHasLadder = context.stressTestingContext.exitLiquidityLadder.length > 0;
+  const panicHasEvents = context.panicOutflowContext.length > 0;
+  const contagionHasPath = context.systemicRiskContext.contagionPath.length > 0;
+
   return `User question:
 ${context.question}
 
 Portfolio Guardian:
-- Wallet: ${context.portfolioRiskContext.walletAddress}
+${portfolioHasRating
+  ? `- Wallet: ${context.portfolioRiskContext.walletAddress}
 - Overall risk score: ${context.portfolioRiskContext.overallRiskScore}/100
 - Rating: ${context.portfolioRiskContext.rating}
 - Intrinsic risk: ${context.portfolioRiskContext.intrinsicRisk}/100
 - Systemic risk: ${context.portfolioRiskContext.systemicRisk}/100
 - Highest-risk style positions:
 ${context.portfolioRiskContext.positions
-  .map((position) => `  - ${position.protocol}: ${position.rating}, intrinsic ${position.intrinsicRisk}/100, systemic ${position.systemicRisk}/100, reason: ${position.mainRiskReason}`)
-  .join("\n")}
+    .map((position) => `  - ${position.protocol}: ${position.rating}, intrinsic ${position.intrinsicRisk}/100, systemic ${position.systemicRisk}/100, reason: ${position.mainRiskReason}`)
+    .join("\n")}`
+  : `- Wallet: ${context.portfolioRiskContext.walletAddress}
+- Wallet-level rating is unavailable for this address/window.
+- Do not interpret NR or 0 values as low risk.`}
 
 Stress Testing Engine:
-- Panic meter: ${context.stressTestingContext.panicMeter}/100
+${stressHasNumbers
+  ? `- Panic meter: ${context.stressTestingContext.panicMeter}/100
 - Downside exposure: $${context.stressTestingContext.downsideExposureUsd.toLocaleString()}
 - Liquidation buffer: ${context.stressTestingContext.liquidationBufferPercent}%
 - Crowding queue: ${context.stressTestingContext.crowdingQueueRank}
-- Downside timing: ${context.stressTestingContext.downsideTiming}
+- Downside timing: ${context.stressTestingContext.downsideTiming}`
+  : stressHasLadder
+    ? `- Numeric shock outputs are unavailable.
+- Exit-liquidity ladder returned qualitative bands:
+${context.stressTestingContext.exitLiquidityLadder.map((step) => `  - ${step.window}: ${step.note}`).join("\n")}`
+    : "- Stress testing outputs are unavailable."}
 
 Panic / Outflow Detector:
-${context.panicOutflowContext
-  .map((event) => `  - ${event.protocol}: ${event.oldRating} -> ${event.newRating}, confidence ${Math.round(event.confidence * 100)}%, panic probability ${event.downgradeProbability}%, signal: ${event.signal}, smart money: ${event.smartWalletMovement}`)
-  .join("\n")}
+${panicHasEvents
+  ? context.panicOutflowContext
+    .map((event) => `  - ${event.protocol}: ${event.oldRating} -> ${event.newRating}, confidence ${Math.round(event.confidence * 100)}%, panic probability ${event.downgradeProbability}%, signal: ${event.signal}, smart money: ${event.smartWalletMovement}`)
+    .join("\n")
+  : "- No panic/outflow events are available for this wallet yet."}
 
 Smart Money Sentinel:
 ${context.smartMoneyContext
@@ -51,8 +69,14 @@ ${context.smartMoneyContext
   .join("\n")}
 
 Contagion / systemic risk:
-- Portfolio systemic risk: ${context.systemicRiskContext.portfolioSystemicRisk}/100
-- Critical path: ${context.systemicRiskContext.contagionPath.join(" -> ")}
+${contagionHasPath
+  ? `- Portfolio systemic risk: ${context.systemicRiskContext.portfolioSystemicRisk}/100
+- Critical path: ${context.systemicRiskContext.contagionPath.join(" -> ")}`
+  : "- Contagion path is unavailable for this wallet."}
+
+Important instruction:
+- Do not treat unavailable NR/0 fields as evidence of safety or danger.
+- If only qualitative ladder data is available, say that clearly.
 
 Answer as a senior DeFi risk analyst.`;
 }

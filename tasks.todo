@@ -128,47 +128,6 @@ The product should feel accessible to:
 
 ---
 
-# 3. Source Attribution & Transparency
-
-Every module should clearly communicate data source quality.
-
-Add elegant source badges:
-
-* Xerberus
-* AI
-* Mixed
-* Fallback
-
-Use subtle visual indicators.
-
-Never expose implementation details.
-
-Examples:
-
-✓ Live Xerberus Intelligence
-
-✓ AI Risk Analysis
-
-✓ Live Risk Signals
-
-Avoid:
-
-✗ Mock Data
-
-✗ Fake Data
-
-✗ Placeholder Data
-
-When live services are unavailable:
-
-Show:
-
-"Live intelligence currently unavailable."
-
-instead of displaying fake data as real.
-
----
-
 # 4. Dashboard Experience Audit
 
 Review every dashboard page:
@@ -242,33 +201,6 @@ Smart Money Example
 These should only help judges explore the app quickly.
 
 Do not claim they are real users.
-
----
-
-# 7. AI Co-Pilot Demo Readiness
-
-Improve suggested prompts.
-
-Examples:
-
-* Is my portfolio safe right now?
-* Which position worries you most?
-* What happens if ETH drops 40%?
-* What happens if USDC depegs?
-* Are smart wallets exiting anything?
-* Should I be worried about contagion?
-* What is my safest yield position?
-
-Make AI outputs highly readable.
-
-Use:
-
-* Risk Summary
-* Key Concerns
-* Supporting Evidence
-* Suggested Actions
-
-Structure responses like a professional analyst report.
 
 ---
 

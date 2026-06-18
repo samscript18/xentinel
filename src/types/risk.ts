@@ -11,6 +11,7 @@ export interface RiskScoreBreakdown {
 }
 
 export interface PortfolioPosition {
+  id: string;
   protocol: string;
   asset: string;
   chain: string;
@@ -71,6 +72,8 @@ export interface SmartWallet {
   walletAddress: string;
   label: string;
   performanceScore: number;
+  currentRiskScore: number;
+  riskChangePercent: number;
   currentRiskRating: RiskRating;
   allocationShift: string;
   lastMovementAt: string;
