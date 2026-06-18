@@ -7,6 +7,7 @@
 - [ ] Set at least one AI provider key.
 - [ ] Set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
 - [ ] Optionally set `SMART_WALLET_WATCHLIST`.
+- [ ] Confirm Xerberus MCP accepts requests from the deployment runtime. A production `403` with `Just a moment...` or `challenges.cloudflare.com` means the upstream is challenging Vercel before MCP receives the JSON-RPC request.
 - [ ] Run `npm run typecheck`.
 - [ ] Run `npm run build`.
 - [ ] Verify `/`.

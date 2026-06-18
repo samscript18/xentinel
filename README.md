@@ -180,15 +180,15 @@ MONGODB_URI=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 SMART_WALLET_WATCHLIST=
-AI_PROVIDER=
-OPENROUTER_API_KEY=
-GROQ_API_KEY=
-GEMINI_API_KEY=
 XERBERUS_API_KEY=
 XERBERUS_ENTERPRISE_API_KEY=
 XERBERUS_ENTERPRISE_MCP_URL=https://mcp.xerberus.io/enterprise/mcp
 XERBERUS_FRAMEWORK_API_KEY=
 XERBERUS_FRAMEWORK_MCP_URL=https://mcp.xerberus.io/framework/mcp
+AI_PROVIDER=
+OPENROUTER_API_KEY=
+GROQ_API_KEY=
+GEMINI_API_KEY=
 
 ## Demo Flow
 
@@ -219,11 +219,13 @@ npm run build
 - Configure `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for wallet connection.
 - Confirm MongoDB network access from the deployment platform.
 - Confirm Xerberus key tier supports the tools needed for the live demo.
+- Confirm the deployment runtime can reach Xerberus MCP without an upstream challenge. If Vercel logs show a `403` response containing `Just a moment...` or `challenges.cloudflare.com`, the request is being blocked before MCP JSON-RPC handling. Ask Xerberus to allow server-to-server access from the deployment environment or provide a non-challenged server endpoint.
 
 ## Known Limitations
 
 - Downloadable reports require Xerberus `generate_report` to return a usable report artifact URL. Until then, Xentinel shows a live wallet-derived risk brief preview.
 - Some Xerberus tools can be slow or unavailable depending on key tier, tool freshness, or wallet coverage. Xentinel keeps module-level unavailable states instead of creating fake data.
+- Production deployments depend on Xerberus MCP accepting requests from the hosting provider. Xentinel detects upstream challenge pages and falls back to unavailable states instead of exposing raw provider errors.
 - Wallet connect is non-custodial and does not request signatures; it only supplies the connected address for analysis.
 
 ## Disclaimer

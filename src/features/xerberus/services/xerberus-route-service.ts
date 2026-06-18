@@ -69,9 +69,13 @@ export interface PortfolioScreenSection {
 }
 
 function warningForTool(label: string, error: unknown) {
+  if (error instanceof XerberusClientError && error.code === "upstream_blocked") {
+    return "Live risk intelligence is temporarily unavailable.";
+  }
+
   if (error instanceof XerberusClientError && error.code === "timeout") {
     if (label === "rate_entity" || label === "rate_token" || label === "rate_market") {
-      return "Xerberus rating request timed out. Try again or analyze a token/protocol input.";
+      return "Live rating request timed out. Try again or analyze a token/protocol input.";
     }
 
     if (label === "get_failure_modes" || label === "intrinsic_open_risks" || label === "portfolio_intrinsic_posture") {

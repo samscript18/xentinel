@@ -7,6 +7,10 @@ export function logXerberusWarning(message: string, details?: unknown) {
 }
 
 function normalizeLogDetails(details: unknown) {
+  if (typeof details === "string") {
+    return sanitizeDetail(details);
+  }
+
   if (!(details instanceof Error)) {
     return details;
   }
@@ -23,6 +27,20 @@ function normalizeLogDetails(details: unknown) {
     status: typeof record.status === "number" ? record.status : undefined,
     endpoint: typeof record.endpoint === "string" ? record.endpoint : undefined,
     code: typeof record.code === "string" ? record.code : undefined,
-    detail: typeof record.detail === "string" ? record.detail : undefined
+    detail: typeof record.detail === "string" ? sanitizeDetail(record.detail) : undefined
   };
+}
+
+function sanitizeDetail(detail: string) {
+  const normalized = detail.toLowerCase();
+
+  if (
+    normalized.includes("just a moment")
+    || normalized.includes("challenges.cloudflare.com")
+    || normalized.includes("cloudflare")
+  ) {
+    return "Cloudflare challenge page returned by Xerberus MCP before JSON-RPC handling.";
+  }
+
+  return detail.slice(0, 500);
 }

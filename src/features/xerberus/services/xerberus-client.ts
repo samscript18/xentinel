@@ -16,7 +16,7 @@ let activeSession: McpSession | undefined;
 export class XerberusClientError extends Error {
 	constructor(
 		message: string,
-		readonly code: "not_configured" | "timeout" | "http_error" | "invalid_response" | "network_error",
+		readonly code: "not_configured" | "timeout" | "http_error" | "upstream_blocked" | "invalid_response" | "network_error",
 		readonly status?: number,
 		readonly endpoint?: string,
 		readonly detail?: string,
@@ -30,6 +30,8 @@ function baseHeaders(config: ReturnType<typeof getXerberusConfig>, tool?: Xerber
 	return {
 		"Content-Type": "application/json",
 		Accept: "application/json, text/event-stream",
+		"Accept-Language": "en-US,en;q=0.9",
+		"User-Agent": "Xentinel/1.0 (+https://xentinel.app; server-to-server MCP client)",
 		"x-api-key": config.apiKey ?? "",
 		"MCP-Protocol-Version": mcpProtocolVersion,
 		...(tool ? { "x-xentinel-tool": tool } : {})
@@ -394,7 +396,13 @@ function xerberusErrorFromAxios(error: AxiosError, endpointUrl: string) {
 	}
 
 	if (error.response) {
-		return new XerberusClientError("Xerberus request failed.", "http_error", error.response.status, endpointUrl, responseDetail(error.response.data));
+		const detail = responseDetail(error.response.data);
+		const code = isCloudflareChallenge(detail) ? "upstream_blocked" : "http_error";
+		const message = code === "upstream_blocked"
+			? "Xerberus MCP blocked this server runtime before the MCP request could complete."
+			: "Xerberus request failed.";
+
+		return new XerberusClientError(message, code, error.response.status, endpointUrl, detail);
 	}
 
 	return new XerberusClientError("Xerberus network request failed.", "network_error", undefined, endpointUrl);
@@ -411,6 +419,10 @@ function isRetryableXerberusError(error: XerberusClientError) {
 
 function responseDetail(data: unknown) {
 	if (typeof data === "string") {
+		if (isCloudflareChallenge(data)) {
+			return "Cloudflare challenge page returned by Xerberus MCP before JSON-RPC handling.";
+		}
+
 		return data.slice(0, 500);
 	}
 
@@ -419,4 +431,15 @@ function responseDetail(data: unknown) {
 	} catch {
 		return undefined;
 	}
+}
+
+function isCloudflareChallenge(value: string | undefined) {
+	if (!value) {
+		return false;
+	}
+
+	const normalized = value.toLowerCase();
+	return normalized.includes("just a moment")
+		|| normalized.includes("challenges.cloudflare.com")
+		|| normalized.includes("cloudflare");
 }
