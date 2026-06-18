@@ -179,6 +179,18 @@ function comparisonSummary(status: ReturnType<typeof comparisonStatus>, userRisk
   return "Analyze a wallet to compare your portfolio against the current smart-money average.";
 }
 
+function movementSummary(change: number, previousRiskScore: number) {
+  if (previousRiskScore <= 0) {
+    return "Baseline recorded. Changes will appear after the next scan.";
+  }
+
+  if (change === 0) {
+    return "Risk score unchanged since the previous snapshot.";
+  }
+
+  return `${change > 0 ? "Increased" : "Reduced"} wallet risk score by ${Math.abs(change)}% since the previous snapshot.`;
+}
+
 async function withSoftTimeout<TValue>(promise: Promise<TValue>, timeoutMs: number, fallback: TValue): Promise<TValue> {
   return Promise.race([
     promise,
@@ -229,24 +241,19 @@ export async function getSmartMoneyLive(userWalletAddress?: string) {
     };
   }
 
-  const userAnalysisPromise = userWalletAddress && isEvmAddress(userWalletAddress)
-    ? withSoftTimeout(getWalletAnalysisWithXerberus(userWalletAddress).catch(() => undefined), 12_000, undefined)
-    : Promise.resolve(undefined);
   let liveRefreshes = 0;
   const watchedRecords = records.slice(0, 12);
-  const refreshSet = new Set<string>(watchedRecords.slice(0, 4).map((record) => record.walletAddress.toLowerCase()));
+  const refreshSet = new Set<string>();
   if (userWalletAddress && isEvmAddress(userWalletAddress)) {
     refreshSet.add(userWalletAddress.toLowerCase());
   }
+  const refreshedEntries = await Promise.all(Array.from(refreshSet).map(async (walletAddress) => ({
+    walletAddress,
+    analysis: await withSoftTimeout(getWalletAnalysisWithXerberus(walletAddress).catch(() => undefined), 12_000, undefined)
+  })));
+  const analysisByAddress = new Map(refreshedEntries.map((entry) => [entry.walletAddress, entry.analysis]));
   const wallets = await Promise.all(watchedRecords.map(async (record) => {
-    const shouldRefresh = refreshSet.has(record.walletAddress.toLowerCase());
-    const analysis = shouldRefresh
-      ? await withSoftTimeout(
-        getWalletAnalysisWithXerberus(record.walletAddress).catch(() => undefined),
-        12_000,
-        undefined
-      )
-      : undefined;
+    const analysis = analysisByAddress.get(record.walletAddress.toLowerCase());
     const previousRiskScore = numberFrom(record.currentRiskScore) ?? numberFrom(record.currentExposureUsd) ?? 0;
     const storedRating = typeof record.currentRiskRating === "string" ? record.currentRiskRating as RiskRating : "NR";
     const currentRiskRating = analysis?.source === "unavailable" ? storedRating : analysis?.data.rating ?? storedRating;
@@ -256,9 +263,7 @@ export async function getSmartMoneyLive(userWalletAddress?: string) {
       ?? previousRiskScore
     );
     const change = exposureChangePercent(currentRiskScore, previousRiskScore);
-    const recentMove = previousRiskScore > 0
-      ? `${change >= 0 ? "Increased" : "Reduced"} wallet risk score by ${Math.abs(change)}% since the previous snapshot.`
-      : "Baseline recorded. Changes will appear after the next scan.";
+    const recentMove = movementSummary(change, previousRiskScore);
     const performanceScore = Math.max(0, Math.min(100, Math.round(100 - (currentRiskScore || 50))));
 
     if (analysis && analysis.source !== "unavailable" && currentRiskScore > 0) {
@@ -306,9 +311,14 @@ export async function getSmartMoneyLive(userWalletAddress?: string) {
   const smartMoneyAverageRiskScore = scoredWallets.length > 0
     ? Math.round(scoredWallets.reduce((sum, wallet) => sum + wallet.currentRiskScore, 0) / scoredWallets.length)
     : 0;
-  const userAnalysis = await userAnalysisPromise;
-  const userRiskScore = userAnalysis?.source === "unavailable" ? undefined : userAnalysis?.data.overallRiskScore;
-  const userRiskRating = userAnalysis?.source === "unavailable" ? undefined : userAnalysis?.data.rating;
+  const userAnalysis = userWalletAddress && isEvmAddress(userWalletAddress)
+    ? analysisByAddress.get(userWalletAddress.toLowerCase())
+    : undefined;
+  const selectedWallet = userWalletAddress
+    ? wallets.find((wallet) => wallet.walletAddress.toLowerCase() === userWalletAddress.toLowerCase())
+    : undefined;
+  const userRiskScore = userAnalysis?.source === "unavailable" ? selectedWallet?.currentRiskScore || undefined : userAnalysis?.data.overallRiskScore ?? selectedWallet?.currentRiskScore;
+  const userRiskRating = userAnalysis?.source === "unavailable" ? selectedWallet?.currentRiskRating : userAnalysis?.data.rating ?? selectedWallet?.currentRiskRating;
   const status = comparisonStatus(userRiskScore, smartMoneyAverageRiskScore);
   const comparison = {
     userRiskScore,
@@ -322,7 +332,7 @@ export async function getSmartMoneyLive(userWalletAddress?: string) {
   return {
     wallets,
     comparison,
-    source: "mixed" as const,
+    source: liveRefreshes > 0 ? "xerberus" as const : "mixed" as const,
     warnings: liveRefreshes > 0 ? [] as string[] : ["Smart-wallet snapshots are available, but live wallet refresh is still syncing."]
   };
 }

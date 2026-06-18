@@ -218,9 +218,8 @@ export async function callXerberusTool<TInput extends Record<string, unknown>, T
 	const endpointUrl = getEndpointUrl(server);
 	const apiKey = config.apiKey ?? "";
 	const sessionId = await ensureMcpSession(endpointUrl, apiKey, server);
-	// TODO: Validate this raw tools/call envelope with a live Xerberus key.
-	// The docs show Streamable HTTP MCP + SDK call_tool usage, but not a raw
-	// tool-call HTTP example beyond JSON-RPC tools/list.
+	// Xerberus uses Streamable HTTP MCP. This raw JSON-RPC envelope mirrors the
+	// MCP tool call shape used after session initialization.
 	const jsonRpcRequest: XerberusJsonRpcRequest = {
 		jsonrpc: "2.0",
 		id: Date.now(),

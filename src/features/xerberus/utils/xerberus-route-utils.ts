@@ -1,8 +1,4 @@
 import type {
-  IntrinsicRiskResponse,
-  PortfolioLadderResponse,
-  RatingResponse,
-  SystemicRiskResponse,
   XerberusRouteResult
 } from "@/features/xerberus/types";
 import type {

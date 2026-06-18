@@ -33,7 +33,7 @@ const problemCards = [
 const solutionPillars = [
 	{
 		title: "Portfolio Guardian",
-		description: "Wallet or entity-level risk analysis with AAA-D ratings, intrinsic risk, systemic risk, and position context when available.",
+		description: "See what deserves attention first: wallet rating, risk score, intrinsic risk, systemic risk, and position context when available.",
 		metric: "Ready",
 		label: "Current risk",
 	},
@@ -45,7 +45,7 @@ const solutionPillars = [
 	},
 	{
 		title: "Panic / Outflow Detector",
-		description: "Surfaces rating drift, systemic risk spikes, configured smart-wallet exits, and outflow signals when available.",
+		description: "Turns rating changes, exit pressure, and smart-wallet movement into an early-warning view.",
 		metric: "Tracked",
 		label: "Panic probability",
 	},
@@ -57,7 +57,7 @@ const solutionPillars = [
 	},
 ];
 
-const workflowSteps = ["Paste wallet", "Get risk ratings", "Stress test wallet", "Compare smart money", "Review panic signals", "Ask the AI Co-Pilot"];
+const workflowSteps = ["Paste wallet", "Analyze portfolio", "Stress test positions", "Compare smart money", "Detect panic signals", "Ask the AI Co-Pilot"];
 
 const riskEngineItems = ["AAA-D ratings", "Intrinsic risk", "Systemic risk", "Protocol dependency analysis", "Vault and position stress awareness", "Contagion intelligence"];
 
@@ -359,7 +359,7 @@ function HowItWorksSection() {
 		<LandingSection
 			eyebrow="How it works"
 			title="From wallet input to actionable risk insight."
-			description="Paste wallet, get risk ratings, stress test the wallet, compare configured smart-money snapshots, review panic signals, then ask the AI Co-Pilot what to do next."
+			description="Paste a wallet, understand the risk profile, stress test positions, compare smart money, detect panic pressure, then ask the AI Co-Pilot what to watch next."
 			id="how-it-works"
 		>
 			<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -379,8 +379,8 @@ function RiskEngineSection() {
 	return (
 		<LandingSection
 			eyebrow="Risk engine"
-			title="A risk engine built for DeFi complexity."
-			description="Xentinel brings together wallet risk, protocol dependencies, stress scenarios, and smart-money movement so users can understand what deserves attention first."
+			title="Why the risk engine matters."
+			description="Xentinel is built around Xerberus risk intelligence so users can move beyond balances and see how risk spreads across DeFi."
 			id="risk-engine"
 		>
 			<div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
@@ -388,7 +388,7 @@ function RiskEngineSection() {
 					<p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-100">Risk intelligence layer</p>
 					<h3 className="mt-4 text-2xl font-semibold text-white">Designed for decisions, not raw data.</h3>
 					<p className="mt-4 text-sm leading-7 text-violet-50/75">
-						Instead of stopping at a rating display, Xentinel turns ratings, intrinsic risk, systemic risk, and dependency context into a clear risk narrative.
+						Xerberus gives Xentinel the primitives DeFi risk needs: ratings, intrinsic risk, systemic risk, stress context, and dependency awareness. Xentinel turns them into a user-facing daily risk workflow.
 					</p>
 				</motion.div>
 				<div className="grid gap-3 sm:grid-cols-2">
@@ -409,7 +409,7 @@ function StressTestingSection() {
 		<LandingSection
 			eyebrow="Stress Testing Engine"
 			title="What happens if the market breaks?"
-			description="Xentinel turns scary market questions into readable stress outputs: ETH drawdowns, USDC depeg pressure, exit liquidity, liquidation buffers, crowding queues, and downside timing."
+			description="Xentinel turns scary market questions into readable stress outputs: how quickly positions can exit, where liquidity thins, and what deserves attention before panic starts."
 		>
 			<div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
 				<motion.div variants={fadeUp} className="rounded-3xl border border-white/10 bg-white/[0.04] p-7">
@@ -452,7 +452,7 @@ function PanicOutflowSection() {
 		<LandingSection
 			eyebrow="Flagship feature"
 			title="Panic / Outflow Detector"
-			description="Instead of only asking what is risky now, Xentinel asks whether panic is building, whether smart wallets are leaving, and whether vault or protocol stress is accelerating."
+			description="Instead of only asking what is risky now, Xentinel asks whether panic is building, whether experienced wallets are rotating, and whether stress is accelerating."
 		>
 			<div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
 				<motion.div variants={fadeUp} className="rounded-3xl border border-white/10 bg-white/[0.04] p-7">
@@ -521,7 +521,7 @@ function SmartMoneySection() {
 		<LandingSection
 			eyebrow="Smart Money Sentinel"
 			title="Compare your risk profile against high-performing wallets."
-			description="Smart wallets are not always right, but coordinated rotations are useful signals. Xentinel turns those movements into context."
+			description="Smart wallets are not always right, but coordinated rotations are useful signals. Xentinel compares your risk profile against a watchlist so you can see whether you are ahead, behind, or moving in line."
 		>
 			<div className="grid gap-5 lg:grid-cols-3">
 				{[
@@ -620,7 +620,7 @@ function FinalCtaSection() {
 				<p className="text-sm font-semibold uppercase tracking-[0.22em] text-cyan-200">Production-ready flow</p>
 				<h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-normal text-white md:text-5xl">See Xentinel in action.</h2>
 				<p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
-					Launch the command center or open Portfolio Guardian to move from wallet input to risk ratings, stress tests, panic signals, smart money comparison, and AI Co-Pilot guidance.
+					Launch the command center or open Portfolio Guardian to move from wallet input to portfolio analysis, stress tests, smart money comparison, panic signals, and AI Co-Pilot guidance.
 				</p>
 				<div className="mt-8 flex flex-col gap-3 sm:flex-row">
 					<CtaLink href="/dashboard">
@@ -644,7 +644,7 @@ function LandingFooter() {
 					<p className="mt-1">Built for the Vibe Buildathon DeFi Track.</p>
 				</div>
 				<div className="text-left md:text-right">
-					<p>Designed for DeFi risk intelligence.</p>
+					<p>Designed for Xerberus-powered DeFi risk intelligence.</p>
 					<p className="mt-1">Not financial advice.</p>
 				</div>
 			</div>

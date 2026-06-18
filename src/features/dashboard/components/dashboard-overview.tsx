@@ -70,7 +70,7 @@ export function DashboardOverview() {
 	const stress = useStressTesting(walletAddress);
 	const panic = useRiskMigration(walletAddress);
 	const contagion = useContagion(walletAddress);
-	const smartMoney = useSmartMoney();
+	const smartMoney = useSmartMoney(walletAddress);
 
 	const hasAnyLiveData = [portfolio.data?.meta.source, stress.data?.meta.source, panic.data?.meta.source, contagion.data?.meta.source, smartMoney.data?.meta.source].some(isLiveSource);
 	const portfolioData = isLiveSource(portfolio.data?.meta.source) ? portfolio.data?.data : undefined;

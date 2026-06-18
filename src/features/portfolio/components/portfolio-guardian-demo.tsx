@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { useAnalyzeWallet } from "@/hooks/use-analyze-wallet";
 import { usePortfolioIntrinsic, usePortfolioSystemic } from "@/hooks/use-portfolio-deep-analysis";
 import { publishSelectedWallet } from "@/hooks/use-selected-wallet";
+import { demoWallets } from "@/lib/demo-wallets";
 import { formatAddress } from "@/lib/wallet/format-address";
 import type { WalletAnalysis } from "@/types/risk";
 
@@ -99,6 +100,33 @@ export function PortfolioGuardianDemo() {
 					Analyze
 				</Button>
 			</form>
+
+			<section className="surface-panel rounded-lg p-5">
+				<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+					<div>
+						<p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">Example wallets</p>
+						<h2 className="mt-2 text-lg font-semibold text-white">Explore Xentinel quickly</h2>
+						<p className="mt-1 text-sm leading-6 text-muted-foreground">Public wallet examples for judges and reviewers. They are provided only to help test the product flow.</p>
+					</div>
+				</div>
+				<div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+					{demoWallets.map((wallet) => (
+						<button
+							key={wallet.address}
+							type="button"
+							className="rounded-lg border border-white/10 bg-white/[0.035] p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-300/30 hover:bg-white/[0.06] focus:outline-none focus:ring-2 focus:ring-primary/40"
+							onClick={() => {
+								setWalletInput(wallet.address);
+								analyzeWallet(wallet.address);
+							}}
+						>
+							<span className="text-sm font-semibold text-white">{wallet.label}</span>
+							<span className="mt-2 block font-mono text-xs text-cyan-100">{formatAddress(wallet.address)}</span>
+							<span className="mt-2 block text-xs leading-5 text-muted-foreground">{wallet.description}</span>
+						</button>
+					))}
+				</div>
+			</section>
 
 			{analysis.isError ? <div className="rounded-lg border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-100">Analysis failed. Please try again.</div> : null}
 
