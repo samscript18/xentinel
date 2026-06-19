@@ -1,213 +1,375 @@
+<div align="center">
+
 # Xentinel
 
-**AI-Powered DeFi Risk Co-Pilot + Smart Money Sentinel**
+![Next.js](https://img.shields.io/badge/Next.js-16-111827)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
+![Xerberus](https://img.shields.io/badge/Xerberus-Enterprise%20MCP-7C3AED)
+![Track](https://img.shields.io/badge/Vibe%20Buildathon-DeFi%20Track-06B6D4)
 
-**Know your risk. Watch the smart money. Stay ahead of the panic.**
+### Know your risk. Watch the smart money. Stay ahead of the panic.
 
-Xentinel is a DeFi risk intelligence command center built for the **Vibe Buildathon DeFi Track**. It helps users move from a wallet address to practical risk insight: portfolio risk, stress-test pressure, smart-money comparison, panic/outflow signals, dependency paths, and AI explanations.
+Xentinel is an **AI-powered DeFi Risk Co-Pilot + Smart Money Sentinel**. It turns live wallet, position, liquidity, rating, and dependency intelligence into a practical command center for understanding current risk, testing downside scenarios, comparing smart-wallet behavior, and spotting pressure before panic becomes obvious.
 
-## Problem
+**[Watch the walkthrough on Loom](https://www.loom.com/share/18905d2fbb614683a4931abbed072c3f)**
 
-Most DeFi users discover risk too late.
+Built for the **Vibe Buildathon DeFi Track**.
 
-Positions can look healthy until liquidity changes, ratings deteriorate, protocol dependencies weaken, or experienced wallets start rotating away. Existing dashboards often show balances and raw data, but they rarely answer the questions users actually ask:
+</div>
 
-- Is my money exposed right now?
-- What happens if the market breaks?
-- Are smart wallets exiting?
-- Which position should I pay attention to first?
+---
 
-## Solution
+## Demo
 
-Xentinel turns live risk intelligence into a daily-usable decision layer.
 
-The core journey is:
 
-```txt
-Paste Wallet
--> Analyze Portfolio
--> Stress Test Positions
--> Compare Smart Money
--> Detect Panic Signals
--> Ask AI Co-Pilot
--> Generate Insights
+> A guided tour from wallet analysis to portfolio risk, stress testing, smart-money comparison, panic signals, contagion mapping, AI explanations, and shareable risk insights.
+
+---
+
+## Table of contents
+
+- [The problem](#the-problem)
+- [What I built](#what-i-built)
+- [Architecture](#architecture)
+- [The Xentinel flow](#the-xentinel-flow)
+- [Product modules](#product-modules)
+- [How Xerberus powers Xentinel](#how-xerberus-powers-xentinel)
+- [Wallet coverage](#wallet-coverage)
+- [Engineering decisions](#engineering-decisions)
+- [Tech stack](#tech-stack)
+- [Project layout](#project-layout)
+- [Run it locally](#run-it-locally)
+- [Environment variables](#environment-variables)
+- [Deployment](#deployment)
+- [Verification](#verification)
+- [Status and limitations](#status-and-limitations)
+
+---
+
+## The problem
+
+DeFi risk is rarely isolated to one balance or one protocol. Users can lose money because they discover danger only after liquidity disappears, ratings deteriorate, smart wallets rotate away, or a dependency failure spreads across connected positions.
+
+Most portfolio dashboards answer **what do I hold?** Xentinel is built around the questions users actually need answered:
+
+1. **What is risky right now?** A balance alone does not explain whether a position is well-built or dangerously connected.
+2. **What happens if the market breaks?** Users need exit timing, liquidity pressure, and downside context before stress arrives.
+3. **Are experienced wallets changing posture?** Smart-wallet behavior can provide an earlier signal than public panic.
+4. **How can one failure reach my portfolio?** Protocol, asset, market, and infrastructure dependencies create hidden contagion paths.
+5. **What should I pay attention to first?** Raw risk data still needs a clear, user-facing explanation.
+
+## What I built
+
+Xentinel is a dark, data-dense DeFi risk command center with six connected modules:
+
+- **Portfolio Guardian** analyzes wallet and position risk using intrinsic and systemic lenses.
+- **Stress Testing Engine** examines exit timing, crowding, and scenario pressure.
+- **Smart Money Sentinel** compares a selected wallet against a tracked smart-wallet watchlist.
+- **Panic / Outflow Detector** combines rating drift, systemic pressure, exit liquidity, and wallet changes into early-warning signals.
+- **AI Chat Co-Pilot** translates the available risk context into plain-English analysis and practical protection ideas.
+- **Beautiful Outputs** packages the current analysis into a shareable risk brief and alert-ready presentation.
+
+Xentinel does not invent positions or silently present unavailable integrations as live data. When an upstream capability is missing, slow, stale, or unavailable, the affected module reports that state honestly.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User] -->|paste or connect wallet| UI[Next.js dashboard]
+    UI -->|React Query + Axios| API[Next.js API routes]
+
+    API --> XCLIENT[Xerberus MCP client]
+    XCLIENT -->|Streamable HTTP MCP| XE[Xerberus Enterprise MCP]
+
+    XE --> N[Typed normalization layer]
+    N --> PG[Portfolio Guardian]
+    N --> ST[Stress Testing]
+    N --> PO[Panic / Outflow]
+    N --> CR[Contagion Radar]
+
+    API --> SM[Smart Money service]
+    SM <--> DB[(MongoDB snapshots)]
+
+    PG & ST & PO & CR & SM --> CTX[Risk context builder]
+    CTX --> AI[OpenRouter / Groq / Gemini]
+    AI --> COPILOT[AI Chat Co-Pilot]
 ```
 
-The product is designed to feel like a premium Web3 risk console: dark, data-dense, responsive, and polished enough for live judging.
+The browser never receives Xerberus, MongoDB, or AI provider secrets. All external intelligence calls and normalization run server-side.
 
-## Features
+## The Xentinel flow
+
+1. **Paste or connect a wallet** using a manual Ethereum address or RainbowKit-supported browser wallet.
+2. **Analyze the portfolio** using Xerberus wallet, entity, token, and position intelligence.
+3. **Load deeper risk sections progressively** so one slow tool does not erase the complete analysis.
+4. **Stress test positions** to understand exit windows, liquidity pressure, and downside timing.
+5. **Compare smart money** against a curated watchlist and saved MongoDB snapshots.
+6. **Detect panic signals** from rating drift, systemic pressure, liquidity constraints, and observed wallet changes.
+7. **Ask the AI Co-Pilot** for a plain-English explanation grounded in the available live context.
+8. **Review the output brief** for a concise portfolio summary and alert-ready insights.
+
+## Product modules
 
 ### Portfolio Guardian
 
-Analyze a wallet and surface:
+Portfolio Guardian uses Xerberus wallet and position intelligence to surface:
 
-- Overall risk score
-- AAA-D style rating
-- Intrinsic risk
-- Systemic risk
-- Position-level risk when returned by the risk engine
-- Highest-risk position
-- Risk distribution visuals
+- Overall wallet risk and AAA-D rating
+- Intrinsic risk: whether an asset, market, or protocol can fail on its own
+- Systemic risk: how external failures and dependencies can affect the position
+- Recognized DeFi positions and exposure values
+- Position-level ratings and risk reasons
+- Highest-risk position and risk distribution
+
+The displayed `0-100` values are normalized risk indicators. They are not probabilities of loss and should not be interpreted as guarantees of safety.
 
 ### Stress Testing Engine
 
-Answer market-break questions:
+Stress Testing Engine helps answer what happens when exits become difficult:
 
-- What if exits crowd?
-- How quickly can this wallet unwind?
-- What is the downside timing?
-- How much of the wallet can exit in 1 day, 7 days, and 30 days?
+- Exit-liquidity ladder
+- One-day, seven-day, and thirty-day exit capacity
+- Expected downside exposure and timing
+- Panic pressure
+- Scenario analysis where the corresponding Xerberus tools return usable data
+- Crowding and liquidation positioning where available
 
 ### Smart Money Sentinel
 
-Track a server-side watchlist of high-signal wallets and compare:
+Smart Money Sentinel maintains a server-side watchlist of ten public wallet examples and supports additional wallets through `SMART_WALLET_WATCHLIST`.
 
-- Current smart-wallet risk ratings
-- Recent risk-score changes
-- Notable movements
-- Your portfolio risk vs smart-money average
-- Whether you are outperforming, lagging, or moving in line
+It provides:
 
-Users can add their own favorite wallets without authentication or signatures.
+- Current wallet risk ratings
+- Previous and current snapshot comparison
+- Exposure and risk-score changes
+- Recent movement feed
+- Selected portfolio risk versus the smart-wallet average
+- A baseline state when no prior snapshot exists
+
+MongoDB stores the snapshots used to identify changes over time. It does not store private keys.
 
 ### Panic / Outflow Detector
 
-Connect portfolio risk and exit pressure into early-warning signals:
+The Panic / Outflow Detector combines available risk signals into an early-warning view:
 
 - Panic meter
-- Highest-risk live position
+- Rating history and rating outlook
+- Systemic risk spike indicators
 - Exit-liquidity pressure
-- Rating-state alerts
-- Smart-money comparison context
+- Smart-wallet comparison context
+- Outflow and rating-drift signals when supported by live history
 
 ### Contagion Radar
 
-Show how risk can travel through DeFi:
+Contagion Radar turns dependency data into a React Flow graph showing:
 
-- Asset -> protocol -> wallet exposure paths
-- Position dependency graph
-- Highest-risk path
-- Exposure relationships using React Flow
+- Asset, protocol, and wallet nodes
+- Exposure relationships
+- Highest-risk dependency path
+- Common-cause and systemic context where available
+
+Its purpose is simple: show how a failure elsewhere in DeFi can reach the user's position.
 
 ### AI Chat Co-Pilot
 
-Ask natural-language risk questions:
+The Co-Pilot behaves like a DeFi risk analyst rather than a generic chatbot. Its context can include:
 
-- Is my portfolio safe right now?
-- Which position worries you most?
-- Are smart wallets exiting anything?
-- What happens if a dependency breaks?
+- Portfolio Guardian results
+- Intrinsic and systemic risk
+- Stress-test results
+- Panic and rating signals
+- Smart-money comparison
+- Contagion paths
 
-The Co-Pilot uses portfolio, stress, panic, smart-money, and contagion context when available.
+AI providers run server-side in this fallback order: **OpenRouter -> Groq -> Gemini**. If every configured provider fails, the API returns a controlled safe-response message instead of exposing provider errors or inventing analysis.
 
 ### Beautiful Outputs
 
-Prepare shareable risk intelligence:
+Beautiful Outputs presents:
 
-- Wallet risk brief preview
+- Wallet risk brief
 - Risk visual summary
-- Top position alert
-- Rating-state alert
-- Report surface ready for downloadable reports when the live report tool returns an artifact URL
+- Highest-risk position alert
+- Rating-state and drift alerts
+- Report artifacts when Xerberus `generate_report` is enabled and returns a usable URL
 
-## Xerberus Integration
+## How Xerberus powers Xentinel
 
-Xentinel is powered primarily by **Xerberus Enterprise MCP** for live DeFi risk intelligence.
+Xentinel uses **Xerberus Enterprise MCP** as its primary risk-intelligence engine. The integration uses Streamable HTTP MCP with session initialization, typed tool wrappers, safe timeouts, structured response parsing, and module-level unavailable states.
 
-Xerberus enables the product because it exposes the risk primitives Xentinel needs:
+The product calls or supports Xerberus tools including:
 
-- Wallet and entity ratings
-- Token and market ratings
-- Intrinsic risk
-- Systemic risk
-- Portfolio ladder / exit liquidity
-- Stress scenario tooling
-- Risk decomposition and dependency intelligence
-- Report and watch tooling where enabled by key tier
+- `rate_entity`, `rate_token`, and `rate_market`
+- `get_positions`
+- `portfolio_intrinsic_posture` and `intrinsic_open_risks`
+- `risk_decomposition`, `common_cause`, and `infrastructure_risk`
+- `portfolio_ladder`, `simulate_scenario`, and `crowding_queue`
+- `rating_history` and `rating_outlook`
+- `generate_report` when permitted by the Xerberus key tier
 
-Xentinel uses Xerberus as the primary risk engine, then normalizes responses into user-facing product modules. If a tool is unavailable, slow, or not enabled for the current key, Xentinel shows an honest unavailable or preview state instead of fabricating holdings or pretending data is live.
+Xerberus supplies the underlying ratings and risk primitives. Xentinel normalizes those responses into consistent product-level scores, graphs, timelines, explanations, and alerts. A zero or `NR` value means no usable signal was returned; it does not mean zero risk.
 
+## Wallet coverage
 
-## Local Setup
+Xentinel currently works best with **Ethereum mainnet EVM wallets using `0x` addresses**.
 
-Install dependencies:
+The richest results come from wallets with Xerberus-recognized:
+
+- Tokens and assets
+- Lending positions
+- Vault or market exposure
+- Protocol-linked positions
+
+Analysis may be limited for empty or new wallets, unsupported assets, CEX deposit addresses, contract-like addresses without portfolio context, non-EVM wallets, and EVM chains outside the current Xerberus coverage window.
+
+## Engineering decisions
+
+- **Xerberus is the source of risk intelligence.** Xentinel does not fabricate wallet positions, ratings, smart-wallet movement, panic signals, or stress results.
+- **Progressive analysis isolates slow tools.** Primary wallet results can render while intrinsic and systemic sections load independently.
+- **External responses are normalized defensively.** Uncertain MCP payloads remain `unknown` until validated and converted into typed Xentinel models.
+- **MCP sessions recover automatically.** Missing or expired session IDs trigger one clean reinitialization before the section becomes unavailable.
+- **Secrets remain server-side.** Xerberus, MongoDB, and AI credentials never use `NEXT_PUBLIC_` variables.
+- **Smart-wallet changes require history.** The first scan records a baseline; movement appears only after a later snapshot provides a real comparison.
+- **AI answers are grounded.** The Co-Pilot receives current module context and is instructed to avoid guarantees, hype, and claims that funds are safe.
+- **Production failures stay contained.** Timeouts, key-tier restrictions, stale windows, and upstream challenge pages affect only the relevant module and do not crash the dashboard.
+
+## Tech stack
+
+- **Application:** Next.js 16 App Router, React 19, TypeScript
+- **UI:** Tailwind CSS, shadcn-style primitives, Framer Motion, Lucide icons
+- **Data fetching:** TanStack React Query, Axios
+- **Charts and graphs:** Recharts, React Flow
+- **Wallet connection:** RainbowKit, wagmi, viem
+- **Persistence:** MongoDB, Mongoose
+- **Risk intelligence:** Xerberus Enterprise MCP
+- **AI:** OpenRouter, Groq, Gemini
+
+## Project layout
+
+```text
+src/
+  app/
+    api/                         # Next.js server route handlers
+    dashboard/                   # dashboard routes and shell
+    page.tsx                     # product landing page
+  components/
+    dashboard/                   # shared dashboard UI
+    providers/                   # React Query, theme, wallet providers
+    ui/                          # reusable UI primitives
+    wallet/                      # RainbowKit wallet controls
+  features/
+    ai/                          # AI provider chain and Co-Pilot prompt
+    contagion/                   # Contagion Radar UI
+    copilot/                     # AI Chat Co-Pilot UI
+    dashboard/                   # command center overview
+    landing/                     # landing-page sections
+    outputs/                     # Beautiful Outputs UI
+    portfolio/                   # Portfolio Guardian UI
+    risk-migration/              # Panic / Outflow Detector UI
+    smart-money/                 # watchlist service and UI
+    stress-testing/              # Stress Testing Engine UI
+    xerberus/                    # MCP client, services, types, normalization
+  hooks/                         # typed React Query hooks
+  lib/                           # API, database, wallet, and shared helpers
+  models/                        # Mongoose models
+  types/                         # API and domain types
+
+docs/submission/                 # pitch, demo, architecture, and deployment notes
+```
+
+## Run it locally
+
+**Prerequisite:** a current Node.js installation compatible with Next.js 16.
 
 ```bash
+# 1. Install dependencies
 npm install
-```
 
-Create local environment:
-
-```bash
+# 2. Create local configuration
 cp .env.example .env.local
-```
 
-Run the app:
-
-```bash
+# 3. Start the development server
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-```txt
-http://localhost:3000
-```
+## Environment variables
 
-## Environment Variables
+Use [`.env.example`](.env.example) as the complete template. The principal variables are:
 
-MONGODB_URI=...
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=...
-SMART_WALLET_WATCHLIST=...
-XERBERUS_API_KEY=...
-XERBERUS_ENTERPRISE_API_KEY=...
-XERBERUS_ENTERPRISE_MCP_URL=https://mcp.xerberus.io/enterprise/mcp
-XERBERUS_FRAMEWORK_API_KEY=...
-XERBERUS_FRAMEWORK_MCP_URL=https://mcp.xerberus.io/framework/mcp
-AI_PROVIDER=...
-OPENROUTER_API_KEY=...
-GROQ_API_KEY=...
-GEMINI_API_KEY=...
+| Variable | Purpose |
+|---|---|
+| `MONGODB_URI` | Smart-wallet snapshots and persistence |
+| `NEXT_PUBLIC_SITE_URL` | Canonical application URL |
+| `NEXT_PUBLIC_API_BASE_URL` | Optional explicit frontend API base URL |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | RainbowKit / WalletConnect project ID |
+| `XERBERUS_ENTERPRISE_API_KEY` or `XERBERUS_API_KEY` | Server-only Xerberus Enterprise credential |
+| `XERBERUS_ENTERPRISE_MCP_URL` | Enterprise MCP endpoint or approved proxy endpoint |
+| `SMART_WALLET_WATCHLIST` | Optional additional watched wallet addresses |
+| `AI_PROVIDER` | Preferred AI provider |
+| `OPENROUTER_API_KEY` | Optional OpenRouter credential |
+| `GROQ_API_KEY` | Optional Groq credential |
+| `GEMINI_API_KEY` | Optional Gemini credential |
 
-## Demo Flow
+Never expose Xerberus, MongoDB, or AI credentials with a `NEXT_PUBLIC_` prefix.
 
-1. Open `/`.
-2. Explain the positioning: Xentinel is an AI-powered DeFi risk Co-Pilot + Smart Money Sentinel.
-3. Launch `/dashboard`.
-4. Open **Portfolio Guardian**.
-5. Use one of the example wallets to run a wallet analysis.
-6. Open **Stress Testing Engine** to inspect exit timing and panic pressure.
-7. Open **Smart Money Sentinel** to compare the selected wallet against the smart-wallet average.
-8. Open **Panic / Outflow Detector** to review early-warning signals.
-9. Open **Contagion Radar** to show exposure paths.
-10. Ask the **AI Chat Co-Pilot**: “Which position worries you most?”
-11. Open **Beautiful Outputs** to show the risk brief preview and alert cards.
+## Deployment
+
+The Next.js application and API routes are Vercel-compatible. Production requires:
+
+- Server-only Xerberus credentials
+- A reachable Xerberus Enterprise MCP endpoint
+- MongoDB access for smart-wallet snapshots
+- At least one configured AI provider for live Co-Pilot responses
+- A WalletConnect project ID for wallet connection
+
+If the hosting runtime receives a Cloudflare `403` challenge from Xerberus before JSON-RPC handling, route MCP traffic through a server-to-server proxy with an outbound IP that Xerberus can allowlist, then set `XERBERUS_ENTERPRISE_MCP_URL` to that proxy endpoint.
 
 ## Verification
 
 ```bash
+npm run lint
 npm run typecheck
 npm run build
 ```
 
-## Deployment Notes
+The primary product routes are:
 
-- Use server-only env vars for Xerberus, MongoDB, and AI provider keys.
-- Do not expose secret keys with `NEXT_PUBLIC_`.
-- Configure `NEXT_PUBLIC_SITE_URL` to the production URL.
-- Configure `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for wallet connection.
-- Confirm MongoDB network access from the deployment platform.
-- Confirm Xerberus key tier supports the tools needed for the live demo.
-- Confirm the deployment runtime can reach Xerberus MCP without an upstream challenge. If Vercel logs show a `403` response containing `Just a moment...` or `challenges.cloudflare.com`, the request is being blocked before MCP JSON-RPC handling. Ask Xerberus to allow server-to-server access from the deployment environment or provide a non-challenged server endpoint.
+```text
+/
+/dashboard
+/dashboard/portfolio
+/dashboard/stress-testing
+/dashboard/risk-migration
+/dashboard/contagion
+/dashboard/smart-money
+/dashboard/copilot
+/dashboard/outputs
+```
 
-## Known Limitations
+## Status and limitations
 
-- Downloadable reports require Xerberus `generate_report` to return a usable report artifact URL. Until then, Xentinel shows a live wallet-derived risk brief preview.
-- Some Xerberus tools can be slow or unavailable depending on key tier, tool freshness, or wallet coverage. Xentinel keeps module-level unavailable states instead of creating fake data.
-- Production deployments depend on Xerberus MCP accepting requests from the hosting provider. Xentinel detects upstream challenge pages and falls back to unavailable states instead of exposing raw provider errors.
-- Wallet connect is non-custodial and does not request signatures; it only supplies the connected address for analysis.
+**Implemented:** landing experience, dashboard shell, Portfolio Guardian, Stress Testing Engine, Smart Money Sentinel, Panic / Outflow Detector, Contagion Radar, AI Chat Co-Pilot, Beautiful Outputs, RainbowKit wallet connection, Xerberus MCP integration, and MongoDB-backed smart-wallet snapshots.
+
+**Current limits:**
+
+- Wallet analysis is strongest for Ethereum mainnet EVM addresses with recognized DeFi exposure.
+- Xerberus results depend on tool coverage, data-window freshness, key tier, response time, and upstream availability.
+- `generate_report` requires a Xerberus tier that permits report generation and returns a usable artifact URL.
+- A first smart-wallet scan establishes a baseline; real movement requires a later snapshot.
+- Wallet connection is non-custodial and used only to supply an address. Xentinel does not request signatures or store private keys.
+
+---
 
 ## Disclaimer
 
-Xentinel is for risk intelligence and education. It is not financial advice.
+Xentinel provides risk intelligence and educational analysis. It is **not financial advice** and does not guarantee that any asset, protocol, market, or wallet is safe.
+
+<div align="center">
+
+Built for the <b>Vibe Buildathon DeFi Track</b>.
+
+</div>
