@@ -21,7 +21,7 @@ Built for the **Vibe Buildathon DeFi Track**.
 
 ## Demo
 
-
+https://github.com/user-attachments/assets/eb894c6f-7e51-4b63-b321-226e012fe3b3
 
 > A guided tour from wallet analysis to portfolio risk, stress testing, smart-money comparison, panic signals, contagion mapping, AI explanations, and shareable risk insights.
 
