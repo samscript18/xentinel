@@ -191,16 +191,6 @@ npm run typecheck
 npm run build
 ```
 
-## Deployment Notes
-
-- Use server-only env vars for Xerberus, MongoDB, and AI provider keys.
-- Do not expose secret keys with `NEXT_PUBLIC_`.
-- Configure `NEXT_PUBLIC_SITE_URL` to the production URL.
-- Configure `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` for wallet connection.
-- Confirm MongoDB network access from the deployment platform.
-- Confirm Xerberus key tier supports the tools needed for the live demo.
-- Confirm the deployment runtime can reach Xerberus MCP without an upstream challenge. If Vercel logs show a `403` response containing `Just a moment...` or `challenges.cloudflare.com`, the request is being blocked before MCP JSON-RPC handling. Ask Xerberus to allow server-to-server access from the deployment environment or provide a non-challenged server endpoint.
-
 ## Known Limitations
 
 - Downloadable reports require Xerberus `generate_report` to return a usable report artifact URL. Until then, Xentinel shows a live wallet-derived risk brief preview.
