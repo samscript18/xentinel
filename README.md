@@ -127,26 +127,6 @@ Xerberus enables the product because it exposes the risk primitives Xentinel nee
 
 Xentinel uses Xerberus as the primary risk engine, then normalizes responses into user-facing product modules. If a tool is unavailable, slow, or not enabled for the current key, Xentinel shows an honest unavailable or preview state instead of fabricating holdings or pretending data is live.
 
-## Tech Stack
-
-- Next.js 16 App Router
-- TypeScript
-- Tailwind CSS
-- shadcn-style UI primitives
-- TanStack React Query
-- Axios
-- MongoDB
-- Mongoose
-- Recharts
-- React Flow
-- RainbowKit
-- wagmi
-- viem
-- Framer Motion
-- Xerberus MCP
-- OpenRouter
-- Groq
-- Gemini
 
 ## Local Setup
 
@@ -176,19 +156,19 @@ http://localhost:3000
 
 ## Environment Variables
 
-MONGODB_URI=
+MONGODB_URI=...
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-SMART_WALLET_WATCHLIST=
-XERBERUS_API_KEY=
-XERBERUS_ENTERPRISE_API_KEY=
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=...
+SMART_WALLET_WATCHLIST=...
+XERBERUS_API_KEY=...
+XERBERUS_ENTERPRISE_API_KEY=...
 XERBERUS_ENTERPRISE_MCP_URL=https://mcp.xerberus.io/enterprise/mcp
-XERBERUS_FRAMEWORK_API_KEY=
+XERBERUS_FRAMEWORK_API_KEY=...
 XERBERUS_FRAMEWORK_MCP_URL=https://mcp.xerberus.io/framework/mcp
-AI_PROVIDER=
-OPENROUTER_API_KEY=
-GROQ_API_KEY=
-GEMINI_API_KEY=
+AI_PROVIDER=...
+OPENROUTER_API_KEY=...
+GROQ_API_KEY=...
+GEMINI_API_KEY=...
 
 ## Demo Flow
 
